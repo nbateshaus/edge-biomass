@@ -48,6 +48,9 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
+# MacOS Garbage
+**/.DS_Store
+
 # data files
 data/raw/**
 data/processed/**
