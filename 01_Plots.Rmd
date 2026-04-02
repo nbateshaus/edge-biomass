@@ -12,6 +12,7 @@ library(tidyterra)
 library(sf)
 library(sfheaders)
 library(ggspatial)
+library(patchwork)
 library(gdalUtilities) # ogr2ogr
 library(foreign) # read.dbf
 ```
@@ -97,6 +98,11 @@ Now that's settled, we can do everything with respect to the AOP.
 ```{r}
 neon_aop_harv_xlim = c(ext(neon_aop_harv)$xmin - 0.015, ext(neon_aop_harv)$xmax + 0.015)
 neon_aop_harv_ylim = c(ext(neon_aop_harv)$ymin - 0.015, ext(neon_aop_harv)$ymax + 0.015)
+
+# We'll use this quite a bit too
+detail_area <- terra::ext(-72.25, -72.20, 42.50, 42.55) |>
+  terra::vect(crs = crs("epsg:4326"))
+
 the_rest_of_the_map <- list(
   geom_spatvector(
     data = neon_aop_harv,
@@ -114,6 +120,14 @@ the_rest_of_the_map <- list(
     ),
     fill = "transparent"
   ),
+  geom_spatvector(
+    data = detail_area,
+    aes(
+      color = "Detail Area",
+      linetype = "Detail Area"
+    ),
+    fill = "transparent"
+  ),
   coord_sf(
     crs = crs(neon_aop_harv),
     xlim = neon_aop_harv_xlim,
@@ -123,14 +137,16 @@ the_rest_of_the_map <- list(
     name = "Legend",
     values = c(
       "Town Borders" = "black",
-      "NEON AOP" = "red"
+      "NEON AOP" = "red",
+      "Detail Area" = "blue"
     )
   ),
   scale_linetype_manual(
     name = "Legend",
     values = c(
       "Town Borders" = "dotted",
-      "NEON AOP" = "solid"
+      "NEON AOP" = "solid",
+      "Detail Area" = "dashed"
     )
   ),
   theme_bw(),
@@ -148,6 +164,7 @@ the_rest_of_the_map <- list(
     style = north_arrow_minimal
   )
 )
+
 ggplot() +
   the_rest_of_the_map +
   ggtitle("Study Area")
@@ -170,8 +187,66 @@ nlcd <- terra::rast(
 ggplot() +
   geom_spatraster(data = nlcd, use_coltab = TRUE) +
   the_rest_of_the_map +
-  ggtitle("Land Cover Class") +
-  labs(fill = "Land Cover Class")
+  ggtitle("NLCD Land Cover Class") +
+  labs(fill = "NLCD Land Cover Class")
+```
+
+## ESA Worldcover
+
+ESA Worldcover is 10m resolution, as opposed to NLCD's 30. How's that look?
+
+```{r}
+esa_worldcover <- terra::rast(file.path(
+  "/vsizip",
+  "data/raw",
+  "terrascope_download_20260402_090311.zip",
+  "WORLDCOVER/ESA_WORLDCOVER_10M_2021_V200/MAP/ESA_WorldCover_10m_2021_v200_N42W075_Map",
+  "ESA_WorldCover_10m_2021_v200_N42W075_Map.tif"
+)) |>
+  terra::crop(neon_aop_harv)
+
+# from https://collections.sentinel-hub.com/worldcover/readme.html
+esa_worldcover_legend <- tribble(
+  ~Value, ~ColorCode, ~ClassName,
+  10, "#006400", "Tree cover",
+  20, "#ffbb22", "Shrubland",
+  30, "#ffff4c", "Grassland",
+  40, "#f096ff", "Cropland",
+  50, "#fa0000", "Built up",
+  60, "#b4b4b4", "Bare /sparse vegetation",
+  70, "#f0f0f0", "Snow and Ice",
+  80, "#0064c8", "Permanent water bodies",
+  90, "#0096a0", "Herbaceous wetland",
+  95, "#00cf75", "Mangroves",
+  100, "#fae6a0", "Moss and lichen"
+)
+levels(esa_worldcover) <- esa_worldcover_legend |>
+  select(Value, ClassName)
+```
+
+
+```{r}
+ggplot() +
+  geom_spatraster(data = esa_worldcover, use_coltab = TRUE) +
+  the_rest_of_the_map +
+  ggtitle("ESA Worldcover")
+```
+
+## NLCD ESA SxS
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd, use_coltab = TRUE) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  ggtitle("NLCD") +
+  theme(legend.position = "none") +
+  ggplot() +
+  geom_spatraster(data = esa_worldcover, use_coltab = TRUE) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  ggtitle("ESA") +
+  theme(legend.position = "none")
 ```
 
 ## Ownership
@@ -339,6 +414,541 @@ ggplot() +
       terra::intersect(neon_aop_harv),
     aes(fill = CLASS)
   ) +
-  the_rest_of_the_map
+  the_rest_of_the_map +
+  ggtitle("Property Type (Asessor Records)")
+```
+
+# Adjacency
+
+## Adjacency Classes
+
+We're interested in forest adjacent to impervious and pervious
+surface. Collapse things down to those three, plus water. There
+is no need for "Other".
+
+```{r}
+adj_classes <- tribble(
+  ~ID, ~category,
+  1, "Water",
+  2, "Impervious",
+  3, "Pervious",
+  4, "Forest"
+)
+```
+
+Other things to look into:
+
+* MassGIS landcover - most recent is 2016
+* Meta Treecover?
+* Impervious product?
+
+
+
+## NLCD to Adjacency
+
+Reduce NLCD to three classes and NA:
+- Forest (Deciduous, Evergreen, Mixed)
+- Developed (Low / Medium / High Intensity)
+- Open (Developed, Open Space; Barren Land; Shrub/Scrub; Grassland/Herbaceoud; Pasture/Hay; Cultivated Crops)
+- NA (everything else)
+
+```{r}
+nlcd_reclassification <- tribble(
+  ~is, ~becomes,
+  "Open Water", "Water",
+  "Developed, Open Space", "Impervious",
+  "Developed, Low Intensity", "Impervious",
+  "Developed, Medium Intensity", "Impervious",
+  "Developed, High Intensity", "Impervious",
+  "Barren Land", "Pervious",
+  "Deciduous Forest", "Forest",
+  "Evergreen Forest", "Forest",
+  "Mixed Forest", "Forest",
+  "Shrub/Scrub", "Pervious",
+  "Grassland/Herbaceous", "Pervious",
+  "Pasture/Hay", "Pervious",
+  "Cultivated Crops", "Pervious",
+  "Woody Wetlands", "Water",
+  "Emergent Herbaceous Wetlands", "Water"
+) |>
+  left_join(levels(nlcd)[[1]], by = join_by(is == `NLCD Land Cover Class`)) |>
+  left_join(adj_classes, by = join_by(becomes == category)) |>
+  select(is = `Pixel Value`, becomes = `ID`)
+
+nlcd_adj_classes <- nlcd |>
+  terra::classify(nlcd_reclassification)
+levels(nlcd_adj_classes) <- adj_classes
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  ggtitle("Collapsed NLCD Land Cover Classes") +
+  labs(fill = "Land Cover Class") +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  )
+
+```
+
+## ESA to Adjacency
+
+```{r}
+esa_reclassification <- tribble(
+  ~is, ~becomes,
+  "Tree cover", "Forest",
+  "Grassland", "Pervious",
+  "Cropland", "Pervious",
+  "Built up", "Impervious",
+  "Bare /sparse vegetation", "Pervious",
+  "Permanent water bodies", "Water",
+  "Herbaceous wetland", "Water"
+) |>
+  left_join(esa_worldcover_legend, by = join_by(is == ClassName)) |>
+  left_join(adj_classes, by = join_by(becomes == category)) |>
+  select(is = Value, becomes = `ID`)
+
+esa_adj_classes <- esa_worldcover |>
+  terra::classify(esa_reclassification)
+levels(esa_adj_classes) <- adj_classes
+```
+
+
+```{r}
+ggplot() +
+  geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  ggtitle("Collapsed ESA Worldover Classes") +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  )
+
+```
+
+## NLCD ESA SxS
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  ggtitle("Collapsed NLCD") +
+  labs(fill = "Land Cover Class") +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none") +
+  ggplot() +
+  geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  ggtitle("Collapsed ESA") +
+  labs(fill = "Land Cover Class") +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none")
+```
+
+## Edges
+
+Can use terra::adjacent to find just N/S adjacency.
+
+looking at the revised landcover map, its one giant patch of forest, so thats not useful
+
+instead, look for e.g. nonforest south and forest north
+or, two passes: find southern edge, then find north of southern edge - will be much smaller
+
+South-facing edges adjacent to impervious
+
+```{r}
+# Pervious Edges
+pvn <- 2^0
+pvs <- 2^1
+pve <- 2^2
+pvw <- 2^3
+# Impervious Edges
+ipw <- 2^4
+ipe <- 2^5
+ips <- 2^6
+ipn <- 2^7
+
+
+
+edge_detect <- function(x, ...) {
+  lc_water <- 1
+  lc_impervious <- 2
+  lc_pervious <- 3
+  lc_forest <- 4
+  
+  lc_north <- x[[2]]
+  lc_west <- x[[4]]
+  lc_center <- x[[5]]
+  lc_east <- x[[6]]
+  lc_south <- x[[8]]
+
+  if (is.na(lc_center)) {
+    return(NA)
+  }
+  
+  edges = 0
+  if (lc_center == lc_forest) {
+    if (!is.na(lc_north) & !is.na(lc_south)) {
+      if (lc_north == lc_forest) {
+        if (lc_south == lc_impervious) {
+          edges <- edges + ips
+        } else if (lc_south == lc_pervious) {
+          edges <- edges + pvs
+      }
+      } else if (lc_south == lc_forest) {
+        if (lc_north == lc_impervious) {
+          edges <- edges + ipn
+        }
+        else if (lc_north == lc_pervious) {
+          edges <- edges + pvn
+        }
+      }
+    }
+
+    if (!is.na(lc_east) & !is.na(lc_west)) {
+      if (lc_east == lc_forest) {
+        if (lc_west == lc_impervious) {
+          edges <- edges + ipw
+        }
+        else if (lc_west == lc_pervious) {
+          edges <- edges + pvw
+        }
+      } else if (lc_west == lc_forest) {
+        if (lc_east == lc_impervious) {
+          edges <- edges + ipe
+        }
+        else if (lc_east == lc_pervious) {
+          edges <- edges + pve
+        }
+      }
+    }
+  }
+  if (edges == 0) {
+    return(NA)
+  } else {
+    return(edges)
+  }
+}
+```
+
+```{r}
+edge_matrix <- tribble(
+  ~Value, ~Edge,
+  pvn, "N Perv",
+  pvs, "S Perv",
+  pve, "E Perv",
+  pvw, "W Perv",
+  
+  pvn + pve, "N Perv / E Perv",
+  pvn + pvw, "N Perv / W Perv",
+  pvs + pve, "S Perv / E Perv",
+  pvs + pvw, "S Perv / W Perv",
+
+  pvn + ipe, "N Perv / E Imp",
+  pvn + ipw, "N Perv / W Imp",
+  pvs + ipe, "S Perv / E Imp",
+  pvs + ipw, "S Perv / W Imp",
+
+  ipn + pve, "N Imp / E Perv",
+  ipn + pvw, "N Imp / W Perv",
+  ips + pve, "S Imp / E Perv",
+  ips + pvw, "S Imp / W Perv",
+  
+  ipn + ipe, "N Imp / E Imp",
+  ipn + ipw, "N Imp / W Imp",
+  ips + ipe, "S Imp / E Imp",
+  ips + ipw, "S Imp / W Imp",
+
+  ipn, "N Imp",
+  ips, "S Imp",
+  ipe, "E Imp",
+  ipw, "W Imp"
+)
+
+r <- rast(ncols = 17, nrow = 5, ext(1, 17, 1, 5))
+values(r) <- c(
+  rep(4, 17), # Forest
+  rep(4, 17), # Forest
+  c(4, 4, 1, 4, 4, 2, 4, 4, 3, 4, 4, 4, 4, 4, NA, 4, 4),
+  rep(4, 17), # Forest
+  rep(4, 17) # Forest
+)
+edges <- terra::focal(r, w = 3, fun = edge_detect, na.policy = "omit")
+levels(edges) <- edge_matrix
+ggplot() +
+  geom_spatraster(data = edges) +
+  coord_sf()
+```
+
+### NLCD Edge Type & Direction
+
+```{r}
+nlcd_edges <- nlcd_adj_classes |>
+  terra::focal(w = 3, fun = edge_detect, na.policy = "omit")
+levels(nlcd_edges) <- edge_matrix
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_edges) +
+  the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = nlcd_edges) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none") +
+  plot_layout(guides = "collect")
+
+```
+
+
+### NLCD Edge Type
+
+```{r}
+nlcd_edges_pi <- nlcd_edges |>
+  mutate(Edge = if_else(
+    bitwAnd(Edge, ipn + ips + ipe + ipw) != 0, 1, if_else(
+      bitwAnd(Edge, pvn + pvs + pve + pvw) != 0, 2,
+      NA
+    ),
+  ))
+levels(nlcd_edges_pi) <- tibble(Value = c(1, 2), Adjacent = c("Impervious", "Pervious"))
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = nlcd_edges_pi) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  plot_layout(guides = "collect")
+
+```
+
+### NLCD N/S
+
+This doesn't work; it's of the opinion that there are no N/S Pervious
+edges, which is wrong. It's also of the opinion that the long, vertical
+edge along the west side of the road in the center of the detail area
+is a N/S stack of N/S edges, which is impossible.
+
+```{r}
+nlcd_edges_ns <- nlcd_edges |>
+  mutate(Edge = if_else(
+    bitwAnd(Edge, ipn + ips) != 0, 1, if_else(
+      bitwAnd(Edge, pvn + pvs) != 0, 2,
+      NA
+    ),
+  ))
+levels(nlcd_edges_ns) <- tibble(Value = c(1, 2), Adjacent = c("Impervious", "Pervious"))
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_edges_ns) +
+  the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "North/South Edge Type",
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = nlcd_edges_ns) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_viridis_d(
+    name = "North/South Edge Type",
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none") +
+  plot_layout(guides = "collect")
+
+
+```
+
+
+```{r}
+nlcd_edges <- nlcd_adj_classes |>
+  terra::focal(w = 3, fun = edge_detect, na.policy = "omit")
+levels(nlcd_edges) <- edge_matrix
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_edges) +
+  the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = nlcd_edges) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none") +
+  plot_layout(guides = "collect")
+
+```
+
+### ESA Edge Type & Direction
+
+```{r}
+esa_edges <- esa_adj_classes |>
+  terra::focal(w = 3, fun = edge_detect, na.policy = "omit")
+levels(esa_edges) <- edge_matrix
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = esa_edges) +
+  the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = esa_edges) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_viridis_d(
+    name = "Edge Direction & Type",
+    na.value = "transparent"
+  ) +
+  theme(legend.position = "none") +
+  plot_layout(guides = "collect")
+
+```
+
+
+### ESA Edge Type
+
+```{r}
+esa_edges_pi <- esa_edges |>
+  mutate(Edge = if_else(
+    bitwAnd(Edge, ipn + ips + ipe + ipw) != 0, 1, if_else(
+      bitwAnd(Edge, pvn + pvs + pve + pvw) != 0, 2,
+      NA
+    ),
+  ))
+levels(esa_edges_pi) <- tibble(Value = c(1, 2), Adjacent = c("Impervious", "Pervious"))
+```
+
+```{r}
+ggplot() +
+  geom_spatraster(data = esa_edges_pi, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = esa_edges_pi) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  plot_layout(guides = "collect")
+
 ```
 
