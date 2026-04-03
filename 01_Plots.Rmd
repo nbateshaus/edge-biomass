@@ -14,7 +14,6 @@ library(sfheaders)
 library(ggspatial)
 library(patchwork)
 library(gdalUtilities) # ogr2ogr
-library(foreign) # read.dbf
 ```
 
 # Layers
@@ -254,8 +253,10 @@ ggplot() +
 I have geodatabase files for the towns that intersect the AOI; these
 include parcels and Assessor information.
 
+### File Conversion
+
 I have Geodatabases for each town, but R crashes if I try to load
-them directly. So convert them to Shapefiles.
+them directly. So convert them to GeoPackage.
 
 ```{r}
 zipfiles <- list.files(
@@ -267,70 +268,104 @@ for (zipfile in zipfiles) {
     filter(grepl("_sde.gdb/$", filename)) |>
     pull(filename) |>
     gsub("/$", "", x = _)
-  shapefile <- gsub("_gdb.zip", ".shp", zipfile)
-  gdalUtilities::ogr2ogr(
-    file.path("/vsizip", "data/raw", zipfile, geodatabase),
-    file.path("data/processed", shapefile),
-    append = TRUE
-  )
+  gpkg <- gsub("_gdb.zip", ".gpkg", zipfile)
+  if (!file.exists(file.path("data/processed", gpkg))) {
+    gdalUtilities::ogr2ogr(
+      file.path("/vsizip", "data/raw", zipfile, geodatabase),
+      file.path("data/processed", gpkg),
+      nlt = "CONVERT_TO_LINEAR"
+    )
+  }
 }
 ```
 
+### Merge Layers
+
+There are two layers of interest: TaxPar, which has the parcel geometry,
+and Assess, which has the Assessor record.
 
 ```{r}
-load_parcels <- function(shapedir) {
-  municipality <- gsub("_parcels.shp", "", shapedir)
-  # Layers: TaxPar, Assess, _LUT, OthLeg, UC_LUT, Misc
-  # We need TaxPar, which has the actual parcels, and
-  # Assess, which is no longer a layer, but has USE_CODE
-  assessment <- file.path(
-    "data/processed",
-    shapedir,
-    paste0(municipality, "Assess.dbf")
-  ) |>
-    foreign::read.dbf()
-  shapefile <- paste0(municipality, "TaxPar.shp")
-  terra::vect(
-    file.path("data/processed", shapedir, shapefile)
-  ) |>
+load_parcels <- function(gpkg) {
+  # Each GeoPackage has a bunch of layers, and they're named different
+  # in each file.
+  l <- terra::vector_layers(gpkg)
+  # The parcels have the geometry
+  parcels <- terra::vect(gpkg, layer = grepv("TaxPar$", l))
+  # The assessor records have the other data we're interested in
+  # A single location can have multiple assessor records, e.g.
+  # a condominium will have a record for the entire association, plus
+  # a separate record for each unit in the association. We take the
+  # record with the largest lot size to be representative of the land
+  # use.
+  assess <- terra::vect(gpkg, layer = grepv("Assess$", l)) |>
+    as.data.frame() |>
+    # TOWN_ID is in both parcels and assess
+    select(-TOWN_ID) |>
+    # Some assessment records don't have a location; they make a mess,
+    # so remove them.
+    filter(!is.na(LOC_ID)) |>
+    group_by(LOC_ID) |>
+    arrange(desc(LOT_SIZE)) |>
+    slice_head(n = 1) |>
+    ungroup()
+  # Add the assessor data to the parcels
+  parcels |>
     left_join(
-      assessment |>
-        select(-c(TOWN_ID, PROP_ID)),
-      by = join_by(LOC_ID)
+      assess,
+      by = join_by(LOC_ID) # LOC_ID is unique within the state (in theory)
     )
 }
 
-tax_parcels <- list.files("data/processed", ".*_parcels.shp$") |>
+tax_parcels <- list.files("data/processed", ".*_parcels.gpkg$", full.names = TRUE) |>
   lapply(load_parcels) |>
   terra::vect()
 ```
 
+### Review
+
 ```{r}
-style_residential <- c(
+style_residential <- tolower(c(
   "4 to 8 Family",
+  "4-8 family",
   "Apartment",
   "Apartment Seniors",
+  "apartments",
   "Bungalow",
+  "Cape",
   "Cape Cod",
   "Colonial",
   "Condominium",
+  "Contemporary",
+  "contempory",
+  "Conventonl",
   "Conventional",
+  "cottage",
+  "cottage/bungalow",
+  "family conver.",
   "Family Duplex",
+  "Gambrel",
+  "Lodge",
+  "Mobile Hm",
   "Mobile Home",
   "Modern/Contemp",
+  "multi-conv",
   "Raised Ranch",
   "Ranch",
+  "Salt Box",
+  "Split Entry",
   "Split-Level",
   "Three Family",
   "Two Family",
   "Victorian"
-)
+))
 
-style_commercial <- c(
+style_commercial <- tolower(c(
   "Antique",
+  "auto sales rpr",
   "Bank Branch",
   "Bar/Tavern",
   "Barbershop/Salon",
+  "bed & breakfast",
   "Bowling Alley",
   "Car Dealer",
   "Cold Storage",
@@ -346,8 +381,10 @@ style_commercial <- c(
   "Heavy Industrial",
   "Home for Aged",
   "Hospital",
+  "hospitals-priv",
   "Kennel",
   "Laboratory",
+  "Light Indust",
   "Light Industrial",
   "Lumber Storage",
   "Medical Office",
@@ -356,65 +393,105 @@ style_commercial <- c(
   "Mixed Retail/Office",
   "Nursing Home",
   "Office",
+  "office bldg",
   "Pharmacy",
   "R & D",
+  "research/devel",
+  "rest/ret/apt",
   "Restaurant",
+  "retail/office",
   "Service Shop",
   "Store",
+  "stores/apt com",
   "Strip Retail",
   "Supermarket",
   "Warehouse"
-)
+))
 
-style_school <- c(
+style_school <- tolower(c(
   "College",
   "Day Care Center",
+  "Dormitory",
   "Elementary School",
   "High School",
-  "Middle School"
-)
+  "Middle School",
+  "School"
+))
 
-style_recreation <- c(
+style_recreation <- tolower(c(
   "Camp",
   "Club/Lodge",
-  "Country Club"
-)
+  "Clubs/Lodges",
+  "Country Club",
+  "skating arena"
+))
 
-style_municipal <- c(
+style_municipal <- tolower(c(
   "Fire Station",
   "Library",
   "Munic/State Garage",
+  "municipal garage",
   "Municipal Offices",
+  "other municip",
   "Police Station",
+  "post office",
   "Post Office Branch",
   "Telephone Bldg"
-)
+))
 
-#  "Church/Temple"     
-#"Outbuildings"     
-#"Parking Garage"     
-#"Vacant Land"  
+style_religious <- tolower(c(
+  "churches",
+  "Church/Temple",
+  "convent/monastary"
+))
 
-x <- tax_parcels |>
+style_farm <- tolower(c(
+  "Barn",
+  "Outbuildings"
+))
+
+style_vacant <- tolower(c(
+  "Vacant Land"
+))
+
+parcels_with_class <- tax_parcels |>
   mutate(
+    STYLE = tolower(STYLE),
     CLASS = case_when(
       STYLE %in% style_residential ~ "Residential",
       STYLE %in% style_commercial ~ "Commercial",
       STYLE %in% style_school ~ "School",
       STYLE %in% style_recreation ~ "Recreation",
       STYLE %in% style_municipal ~ "Municipal",
+      STYLE %in% style_religious ~ "Religious",
+      STYLE %in% style_farm ~ "Farm",
+      STYLE %in% style_vacant ~ "Vacant",
       .default = STYLE
     )
   )
 
 ggplot() +
   geom_spatvector(
-    data = x |>
+    data = parcels_with_class |>
       terra::project(neon_aop_harv) |>
       terra::intersect(neon_aop_harv),
     aes(fill = CLASS)
   ) +
   the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "Property Type",
+    breaks = c(
+      "Residential",
+      "Commercial",
+      "School",
+      "Recreation",
+      "Municipal",
+      "Religious",
+      "Farm",
+      "Vacant"
+    ),
+    na.value = "transparent"
+  ) +
   ggtitle("Property Type (Asessor Records)")
 ```
 
@@ -851,33 +928,6 @@ ggplot() +
 
 ```
 
-
-```{r}
-nlcd_edges <- nlcd_adj_classes |>
-  terra::focal(w = 3, fun = edge_detect, na.policy = "omit")
-levels(nlcd_edges) <- edge_matrix
-```
-
-```{r}
-ggplot() +
-  geom_spatraster(data = nlcd_edges) +
-  the_rest_of_the_map +
-  scale_fill_viridis_d(
-    name = "Edge Direction & Type",
-    na.value = "transparent"
-  ) +
-  ggplot() +
-  geom_spatraster(data = nlcd_edges) +
-  the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
-  scale_fill_viridis_d(
-    name = "Edge Direction & Type",
-    na.value = "transparent"
-  ) +
-  theme(legend.position = "none") +
-  plot_layout(guides = "collect")
-
-```
 
 ### ESA Edge Type & Direction
 
