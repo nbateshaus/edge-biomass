@@ -166,7 +166,38 @@ the_rest_of_the_map <- list(
 
 ggplot() +
   the_rest_of_the_map +
-  ggtitle("Study Area")
+  ggtitle("Study Area") +
+  ggplot() +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+
+```
+
+## Aerial Imagery
+
+There's a grid; which grid cells do we need?
+```{r}
+massgis_grid <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "COQ2023INDEX_POLY.zip",
+   "COQ2023INDEX_POLY.shp"
+))
+```
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = massgis_grid |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    color = "red",
+    fill = "transparent"
+  ) +
+  the_rest_of_the_map
+
 ```
 
 ## NLCD
@@ -492,7 +523,148 @@ ggplot() +
     ),
     na.value = "transparent"
   ) +
-  ggtitle("Property Type (Asessor Records)")
+  ggplot() +
+  geom_spatvector(
+    data = parcels_with_class |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = CLASS)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_viridis_d(
+    name = "Property Type",
+    breaks = c(
+      "Residential",
+      "Commercial",
+      "School",
+      "Recreation",
+      "Municipal",
+      "Religious",
+      "Farm",
+      "Vacant"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  plot_layout(guides = "collect")
+
+```
+
+## Open Space
+
+```{r}
+# OpenSpace OWNER_TYPE decode from:
+# https://www.mass.gov/info-details/massgis-data-protected-and-recreational-openspace#attributes
+ma_openspace_owner_type <- "
+F - Federal
+S - State
+C - County
+M - Municipal
+N - Private Nonprofit
+P - Private for profit
+B - Public Nonprofit
+L - Land Trust
+G - Conservation Organization
+O - Other / None of the above (e.g.joint ownership)
+X - Unknown
+I - Inholding (a piece of unprotected property surrounded on all sides by a protected property or a recreational facility)
+Unconfirmed:
+1 - EOEEA or alternate state agencies
+2 - EOEEA or non-profit
+3 - EOEEA or municipality
+4 - EOEEA or private landowner
+" |>
+  strsplit("\n") |>
+  unlist() |>
+  as.data.frame() |>
+  set_names("text") |>
+  mutate(
+    OWNER_TYPE = gsub("^(.) - (.*)$", "\\1", text),
+    OWNER_DESC = gsub("^(.) - (.*)$", "\\2", text)
+  ) |>
+  filter(!is.na(OWNER_TYPE) & OWNER_TYPE != text) |>
+  select(OWNER_TYPE, OWNER_DESC) |>
+  mutate(
+    OWNER_NOTE = if_else(
+      grepl("\\(", OWNER_DESC),
+      gsub("^[^(]*\\(([^)]+)\\).*$", "\\1", OWNER_DESC),
+      NA
+    ),
+    OWNER_DESC = if_else(
+      grepl("\\(", OWNER_DESC),
+      gsub("^([^(]*) ?\\(.*$", "\\1", OWNER_DESC),
+      OWNER_DESC
+    )
+  )
+
+ma_openspace <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw",
+  "MA_openspace.zip",
+  "OPENSPACE_POLY.shp"
+)) |>
+  left_join(
+    ma_openspace_owner_type, by = join_by(OWNER_TYPE)
+  )
+```
+
+```{r}
+
+ggplot() +
+  geom_spatvector(
+    data = ma_openspace |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = OWNER_DESC)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Owner Type",
+    values = c(
+      "Land Trust" = "blue",
+      "Municipal" = "yellow",
+      "Private for profit" = "orange",
+      "Private Nonprofit" = "brown",
+      "State" = "green"
+    ),
+    breaks = c(
+      "Land Trust",
+      "Municipal",
+      "Private for profit",
+      "Private Nonprofit",
+      "State"
+    ),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatvector(
+    data = ma_openspace |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = OWNER_DESC)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Owner Type",
+    values = c(
+      "Land Trust" = "blue",
+      "Municipal" = "yellow",
+      "Private for profit" = "orange",
+      "Private Nonprofit" = "brown",
+      "State" = "green"
+    ),
+    breaks = c(
+      "Land Trust",
+      "Municipal",
+      "Private for profit",
+      "Private Nonprofit",
+      "State"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  plot_layout(guides = "collect")
+
 ```
 
 # Adjacency
