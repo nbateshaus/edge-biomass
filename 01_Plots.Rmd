@@ -1327,26 +1327,46 @@ accessible_edges <- nlcd_edges_pi |>
 ```
 
 ```{r}
-ggplot() +
+edge_access_map <- list(
   geom_spatvector(
     data = ma_openspace |>
       terra::project(neon_aop_harv) |>
       terra::intersect(neon_aop_harv) |>
-      filter(PUB_ACCESS_DESC2 == "Open"),
-    fill = "lightblue",
-    alpha = 0.5
-  ) +
-  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE) +
-  the_rest_of_the_map +
+      filter(
+        PUB_ACCESS_DESC2 != "Closed"
+      ),
+    mapping = aes(
+      fill = PUB_ACCESS_DESC2
+    )
+  ),
+  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE),
   scale_fill_manual(
-    name = "Edge Type",
+    name = "Legend",
     values = list(
       "Impervious" = "red",
-      "Pervious" = "forestgreen"
+      "Pervious" = "forestgreen",
+      "Open" = "lightblue",
+      "Membership Only" = "lightblue3",
+      "Unknown" = "lightblue4"
     ),
-    breaks = c("Impervious", "Pervious"),
+    breaks = c(
+      "Impervious",
+      "Pervious",
+      "Open",
+      "Membership Only",
+      "Unknown"
+    ),
     na.value = "transparent"
   )
+)
+ggplot() +
+  edge_access_map +
+  the_rest_of_the_map +
+  ggplot() +
+  edge_access_map +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect")
 ```
 
 
