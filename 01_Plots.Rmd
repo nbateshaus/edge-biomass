@@ -14,6 +14,7 @@ library(sfheaders)
 library(ggspatial)
 library(patchwork)
 library(gdalUtilities) # ogr2ogr
+library(maptiles) # for tile maps
 ```
 
 # Layers
@@ -194,7 +195,53 @@ ggplot() +
   coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
+```
 
+## Map Tiles
+
+```{r}
+basemap_area <- terra::ext(
+  neon_aop_harv_xlim["xmin"],
+  neon_aop_harv_xlim["xmax"],
+  neon_aop_harv_ylim["ymin"],
+  neon_aop_harv_ylim["ymax"]
+) |>
+  terra::vect(crs = crs("epsg:4326"))
+
+neon_aop_web <- basemap_area |>
+  terra::project(crs("epsg:3857")) |> # use webmercator
+  st_as_sf()
+
+detail_area_web <- detail_area |>
+  terra::project(crs("epsg:3857")) |> # use webmercator
+  st_as_sf()
+
+# Download tiles
+basemap <- maptiles::get_tiles(
+  neon_aop_web,
+  provider = "OpenStreetMap",
+  zoom = 13, # 4.5km / tile
+  crop = TRUE
+)
+
+basemap_detail <- maptiles::get_tiles(
+  detail_area_web,
+  provider = "OpenStreetMap",
+  zoom = 15, # 1.1km / tile
+  crop =TRUE
+)
+
+# Plot
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  the_rest_of_the_map +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
 ```
 
 ## Aerial Imagery
