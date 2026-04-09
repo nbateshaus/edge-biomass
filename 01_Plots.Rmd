@@ -1337,17 +1337,21 @@ edge_access_map <- list(
       ),
     mapping = aes(
       fill = PUB_ACCESS_DESC2
-    )
+    ),
+    alpha = 0.25
   ),
-  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE),
+  geom_spatraster(
+    data = nlcd_edges_pi,
+    use_coltab = FALSE
+  ),
   scale_fill_manual(
     name = "Legend",
     values = list(
       "Impervious" = "red",
       "Pervious" = "forestgreen",
       "Open" = "lightblue",
-      "Membership Only" = "lightblue3",
-      "Unknown" = "lightblue4"
+      "Membership Only" = "orange2",
+      "Unknown" = "purple3"
     ),
     breaks = c(
       "Impervious",
@@ -1360,9 +1364,11 @@ edge_access_map <- list(
   )
 )
 ggplot() +
+  geom_spatraster_rgb(data = basemap) +
   edge_access_map +
   the_rest_of_the_map +
   ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
   edge_access_map +
   the_rest_of_the_map +
   coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
