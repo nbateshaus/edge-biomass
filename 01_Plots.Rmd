@@ -95,12 +95,16 @@ ggplot() +
 Now that's settled, we can do everything with respect to the AOP.
 
 ```{r}
-neon_aop_harv_xlim = c(ext(neon_aop_harv)$xmin - 0.015, ext(neon_aop_harv)$xmax + 0.015)
-neon_aop_harv_ylim = c(ext(neon_aop_harv)$ymin - 0.015, ext(neon_aop_harv)$ymax + 0.015)
+neon_aop_harv_xlim <- c(ext(neon_aop_harv)$xmin - 0.015, ext(neon_aop_harv)$xmax + 0.015)
+neon_aop_harv_ylim <- c(ext(neon_aop_harv)$ymin - 0.015, ext(neon_aop_harv)$ymax + 0.015)
 
 # We'll use this quite a bit too
-detail_area <- terra::ext(-72.25, -72.20, 42.50, 42.55) |>
+detail_area <- terra::ext(-72.20, -72.15, 42.50, 42.55) |>
   terra::vect(crs = crs("epsg:4326"))
+detail_xlim <- c(ext(detail_area)$xmin, ext(detail_area)$xmax)
+detail_ylim <- c(ext(detail_area)$ymin, ext(detail_area)$ymax)
+
+harvard_forest <- terra::vect(tibble(x=-72.1899, y=42.5319), crs=crs("epsg:4326"))
 
 the_rest_of_the_map <- list(
   geom_spatvector(
@@ -127,6 +131,22 @@ the_rest_of_the_map <- list(
     ),
     fill = "transparent"
   ),
+  # This one is a black background for the HF triangle;
+  # it does not show in the legend.
+  geom_spatvector(
+    data = harvard_forest,
+    color = "black",
+    shape = "triangle",
+    size = 2.5
+  ),
+  geom_spatvector(
+    data = harvard_forest,
+    aes(
+      color = "Harvard Forest",
+      linetype = "Harvard Forest"
+    ),
+    shape = "triangle"
+  ),
   coord_sf(
     crs = crs(neon_aop_harv),
     xlim = neon_aop_harv_xlim,
@@ -137,7 +157,8 @@ the_rest_of_the_map <- list(
     values = c(
       "Town Borders" = "black",
       "NEON AOP" = "red",
-      "Detail Area" = "blue"
+      "Detail Area" = "blue",
+      "Harvard Forest" = "gold"
     )
   ),
   scale_linetype_manual(
@@ -145,7 +166,8 @@ the_rest_of_the_map <- list(
     values = c(
       "Town Borders" = "dotted",
       "NEON AOP" = "solid",
-      "Detail Area" = "dashed"
+      "Detail Area" = "dashed",
+      "Harvard Forest" = "solid"
     )
   ),
   theme_bw(),
@@ -169,7 +191,7 @@ ggplot() +
   ggtitle("Study Area") +
   ggplot() +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
 
@@ -268,13 +290,13 @@ ggplot() +
 ggplot() +
   geom_spatraster(data = nlcd, use_coltab = TRUE) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("NLCD") +
   theme(legend.position = "none") +
   ggplot() +
   geom_spatraster(data = esa_worldcover, use_coltab = TRUE) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("ESA") +
   theme(legend.position = "none")
 ```
@@ -545,7 +567,7 @@ ggplot() +
     ),
     na.value = "transparent"
   ) +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   plot_layout(guides = "collect")
 
 ```
@@ -807,7 +829,7 @@ ggplot() +
 ggplot() +
   geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Collapsed NLCD") +
   labs(fill = "Land Cover Class") +
   scale_fill_manual(
@@ -830,7 +852,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Collapsed ESA") +
   labs(fill = "Land Cover Class") +
   scale_fill_manual(
@@ -1006,7 +1028,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = nlcd_edges) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   scale_fill_viridis_d(
     name = "Edge Direction & Type",
     na.value = "transparent"
@@ -1046,7 +1068,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = nlcd_edges_pi) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   scale_fill_manual(
     name = "Edge Type",
     values = list(
@@ -1089,7 +1111,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = nlcd_edges_ns) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   scale_fill_viridis_d(
     name = "North/South Edge Type",
     na.value = "transparent"
@@ -1120,7 +1142,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = esa_edges) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   scale_fill_viridis_d(
     name = "Edge Direction & Type",
     na.value = "transparent"
@@ -1160,7 +1182,7 @@ ggplot() +
   ggplot() +
   geom_spatraster(data = esa_edges_pi) +
   the_rest_of_the_map +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   scale_fill_manual(
     name = "Edge Type",
     values = list(
