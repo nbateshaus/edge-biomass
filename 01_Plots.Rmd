@@ -619,6 +619,29 @@ Unconfirmed:
     )
   )
 
+
+# OpenSpace PUB_ACCESS decode from:
+# https://www.mass.gov/info-details/massgis-data-protected-and-recreational-openspace#attributes
+ma_openspace_pub_access <- "
+Y - Yes (open to public)
+N - No (not open to public)
+L - Limited (membership only)
+X - Unknown
+" |>
+  strsplit("\n") |>
+  unlist() |>
+  as.data.frame() |>
+  set_names("text") |>
+  mutate(
+    PUB_ACCESS = gsub("^(.) - (.*)$", "\\1", text),
+    PUB_ACCESS_DESC = gsub("^(.) - (.*)$", "\\2", text)
+  ) |>
+  filter(PUB_ACCESS_DESC != "") |>
+  arrange(PUB_ACCESS) |>
+  mutate(
+    PUB_ACCESS_DESC2 = c("Membership Only", "Closed", "Unknown", "Open")
+  )
+
 ma_openspace <- terra::vect(file.path(
   "/vsizip",
   "data/raw",
@@ -627,11 +650,15 @@ ma_openspace <- terra::vect(file.path(
 )) |>
   left_join(
     ma_openspace_owner_type, by = join_by(OWNER_TYPE)
+  ) |>
+  left_join(
+    ma_openspace_pub_access, by = join_by(PUB_ACCESS)
   )
 ```
 
-```{r}
+### Owner Type
 
+```{r}
 ggplot() +
   geom_spatvector(
     data = ma_openspace |>
@@ -684,9 +711,50 @@ ggplot() +
     ),
     na.value = "transparent"
   ) +
-  coord_sf(crs = crs("epsg:4326"), xlim = c(-72.25, -72.20), ylim = c(42.50, 42.55)) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   plot_layout(guides = "collect")
 
+```
+
+### Public Access
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = ma_openspace |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = PUB_ACCESS_DESC2)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Public Access",
+    values = c(
+      "Open" = "forestgreen",
+      "Closed" = "red",
+      "Membership Only" = "yellow",
+      "Unknown" = "blue"
+    )
+  ) +
+  ggplot() +
+  geom_spatvector(
+    data = ma_openspace |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = PUB_ACCESS_DESC2)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Public Access",
+    values = c(
+      "Open" = "forestgreen",
+      "Closed" = "red",
+      "Membership Only" = "yellow",
+      "Unknown" = "blue"
+    )
+  ) +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect")
 ```
 
 # Adjacency
@@ -1195,4 +1263,43 @@ ggplot() +
   plot_layout(guides = "collect")
 
 ```
+
+# Edge Access
+
+Putting edges and access together
+
+```{r}
+accessible_edges <- nlcd_edges_pi |>
+  terra::intersect(
+    ma_openspace |>
+      filter(PUB_ACCESS == "Y" | PUB_ACCESS == "M") |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv) |>
+      terra::project(crs(nlcd_edges_pi))
+  )
+```
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = ma_openspace |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv) |>
+      filter(PUB_ACCESS_DESC2 == "Open"),
+    fill = "lightblue",
+    alpha = 0.5
+  ) +
+  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  )
+```
+
 
