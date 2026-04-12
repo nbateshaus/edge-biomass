@@ -332,13 +332,31 @@ ggplot() +
 
 ## NLCD
 
+The NLCD available from the MRLC viewer is much higher resolution than
+the NLCD available from EarthExplorer.
+
+* MRLC Viewer: https://www.mrlc.gov/viewer/
+* Earth Explorer: https://earthexplorer.usgs.gov
+
+MRLC generates a zipfile with the UUIDs both in the name of the
+zipfile and in the names of the files contained therein. The UUID
+is the identity of the job used to create the file.
+
+Nik's Downloads:
+
+* bddf54a4-322c-40a1-bf88-b050f871fad8: 2024
+* c1a704ee-7eb3-47cc-ba90-39e87f9ee635: 1985 - 2024
+
 ```{r}
+nlcd_uuid <- "c1a704ee-7eb3-47cc-ba90-39e87f9ee635"
+nlcd_year <- 2024
+
 nlcd <- terra::rast(
   file.path(
     "/vsizip",
     "data/raw",
-    "NLCD_bddf54a4-322c-40a1-bf88-b050f871fad8.zip",
-    "Annual_NLCD_LndCov_2024_CU_C1V1_bddf54a4-322c-40a1-bf88-b050f871fad8.tiff"
+    paste0("NLCD_", nlcd_uuid, ".zip"),
+    paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
   )
 )
 ```
