@@ -14,7 +14,7 @@ library(sfheaders)
 library(ggspatial)
 library(patchwork)
 library(gdalUtilities) # ogr2ogr
-library(maptiles) # for tile maps
+library(maptiles) # for basemap
 ```
 
 # Layers
@@ -35,9 +35,12 @@ state_outlines <- map_data("state", region = c(
   terra::vect()
 ma_outline <- state_outlines |> filter(group == 3)
 
-ma_towns <- terra::vect(
-  "/vsizip/data/raw/MA_CENSUS2020TOWNS_SHP.zip/CENSUS2020TOWNS_POLY.shp"
-)
+ma_towns <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "MA_CENSUS2020TOWNS_SHP.zip",
+   "CENSUS2020TOWNS_POLY.shp"
+))
 ```
 
 ## NEON AOP HARV
@@ -46,9 +49,13 @@ NEON flies over Harvard Forest, and much more.
 The flightbox is our region of interest.
 
 ```{r neon_aop_harv}
-neon_aop_harv <- terra::vect(
-  "/vsizip/data/raw/NEON_AOP_flightBoxes_0.zip/AOP_flightBoxes/AOP_flightboxesAllSites.shp"
-) |>
+neon_aop_harv <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
   filter(siteID == "HARV") |>
   filter(priority == 1)
 ```
@@ -159,7 +166,8 @@ the_rest_of_the_map <- list(
       "Town Borders" = "black",
       "NEON AOP" = "red",
       "Detail Area" = "blue",
-      "Harvard Forest" = "gold"
+      "Harvard Forest" = "gold",
+      "Rope Plot" = "black"
     )
   ),
   scale_linetype_manual(
@@ -168,7 +176,8 @@ the_rest_of_the_map <- list(
       "Town Borders" = "dotted",
       "NEON AOP" = "solid",
       "Detail Area" = "dashed",
-      "Harvard Forest" = "solid"
+      "Harvard Forest" = "solid",
+      "Rope Plot" = "solid"
     )
   ),
   theme_bw(),
@@ -200,37 +209,47 @@ ggplot() +
 ## Map Tiles
 
 ```{r}
-basemap_area <- terra::ext(
-  neon_aop_harv_xlim["xmin"],
-  neon_aop_harv_xlim["xmax"],
-  neon_aop_harv_ylim["ymin"],
-  neon_aop_harv_ylim["ymax"]
-) |>
-  terra::vect(crs = crs("epsg:4326"))
-
-neon_aop_web <- basemap_area |>
-  terra::project(crs("epsg:3857")) |> # use webmercator
-  st_as_sf()
-
-detail_area_web <- detail_area |>
-  terra::project(crs("epsg:3857")) |> # use webmercator
-  st_as_sf()
-
 # Download tiles
-basemap <- maptiles::get_tiles(
-  neon_aop_web,
-  provider = "OpenStreetMap",
-  zoom = 13, # 4.5km / tile
-  crop = TRUE
-)
+if (file.exists("data/processed/basemap.tif")) {
+  basemap <- terra::rast("data/processed/basemap.tif")
+} else {
+  basemap_area <- terra::ext(
+    neon_aop_harv_xlim["xmin"],
+    neon_aop_harv_xlim["xmax"],
+    neon_aop_harv_ylim["ymin"],
+    neon_aop_harv_ylim["ymax"]
+  ) |>
+    terra::vect(crs = crs("epsg:4326"))
+  
+  neon_aop_web <- basemap_area |>
+    terra::project(crs("epsg:3857")) |> # use webmercator
+    st_as_sf()
+  
+  basemap <- maptiles::get_tiles(
+    neon_aop_web,
+    provider = "OpenStreetMap",
+    zoom = 13, # 4.5km / tile
+    crop = TRUE
+  )
+}
 
-basemap_detail <- maptiles::get_tiles(
-  detail_area_web,
-  provider = "OpenStreetMap",
-  zoom = 15, # 1.1km / tile
-  crop =TRUE
-)
+if (file.exists("data/processed/basemap_detail.tif")) {
+  basemap_detail <- terra::rast("data/processed/basemap_detail.tif")
+} else {
+  detail_area_web <- detail_area |>
+    terra::project(crs("epsg:3857")) |> # use webmercator
+    st_as_sf()
 
+  basemap_detail <- maptiles::get_tiles(
+    detail_area_web,
+    provider = "OpenStreetMap",
+    zoom = 15, # 1.1km / tile
+    crop =TRUE
+  )
+}
+```
+
+```{r}
 # Plot
 ggplot() +
   geom_spatraster_rgb(data = basemap) +
@@ -242,6 +261,48 @@ ggplot() +
   coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
+```
+
+## Rope Plots
+
+```{r}
+rope_plots <- readxl::read_xls(
+  "data/raw/Rope Plots Data Entry.xls",
+  sheet = "Rope Plot Sites"
+) |>
+  mutate(
+    lat = as.numeric(gsub("^N ?([^°]+)°.*$", "\\1", GPS)),
+    lon = -as.numeric(gsub("^.*W ?([^°]+)°$", "\\1", GPS))
+  ) |>
+  terra::vect()
+```
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatvector(
+    data = rope_plots,
+    aes(
+      color = "Rope Plot",
+      linetype = "Rope Plot"
+    ),
+    size = 0.75
+  ) +
+  the_rest_of_the_map +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatvector(
+    data = rope_plots,
+    aes(
+      color = "Rope Plot",
+      linetype = "Rope Plot"
+    ),
+    size = 0.75
+  ) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect")
+  
 ```
 
 ## Aerial Imagery
@@ -771,38 +832,140 @@ ggplot() +
     data = ma_openspace |>
       terra::project(neon_aop_harv) |>
       terra::intersect(neon_aop_harv),
-    aes(fill = PUB_ACCESS_DESC2)
+    aes(fill = PUB_ACCESS_DESC2),
+    alpha = 0.25
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
-    name = "Public Access",
-    values = c(
-      "Open" = "forestgreen",
-      "Closed" = "red",
-      "Membership Only" = "yellow",
-      "Unknown" = "blue"
-    )
+    name = "Legend",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen",
+      "Open" = "lightblue",
+      "Membership Only" = "orange2",
+      "Unknown" = "purple3"
+    ),
+    breaks = c(
+      "Impervious",
+      "Pervious",
+      "Open",
+      "Membership Only",
+      "Unknown"
+    ),
+    na.value = "transparent"
   ) +
   ggplot() +
   geom_spatvector(
     data = ma_openspace |>
       terra::project(neon_aop_harv) |>
       terra::intersect(neon_aop_harv),
-    aes(fill = PUB_ACCESS_DESC2)
+    aes(fill = PUB_ACCESS_DESC2),
+    alpha = 0.25
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
-    name = "Public Access",
-    values = c(
-      "Open" = "forestgreen",
-      "Closed" = "red",
-      "Membership Only" = "yellow",
-      "Unknown" = "blue"
-    )
+    name = "Legend",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen",
+      "Open" = "lightblue",
+      "Membership Only" = "orange2",
+      "Unknown" = "purple3"
+    ),
+    breaks = c(
+      "Impervious",
+      "Pervious",
+      "Open",
+      "Membership Only",
+      "Unknown"
+    ),
+    na.value = "transparent"
   ) +
   coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   plot_layout(guides = "collect")
 ```
+
+## Soil
+
+https://www.mass.gov/info-details/massgis-data-soils-ssurgo-certified-nrcs
+
+FRMLNDCLS	Farmland Classification	Identification of map units as prime farmland, farmland of statewide importance, or farmland of unique importance.
+
+
+```{r}
+ma_soil_top20 <- terra::vect(
+  file.path(
+    "/vsizip",
+    "data/raw",
+    "Soils_MassGIS_GDB.zip",
+    "Soils_MassGIS.gdb"
+  ),
+  layer = "SOILS_MUPOLYGON_TOP20"
+)
+
+ma_soil_primefarm <- terra::vect(
+  file.path(
+    "/vsizip",
+    "data/raw",
+    "Soils_MassGIS_GDB.zip",
+    "Soils_MassGIS.gdb"
+  ),
+  layer = "SOILS_POLY_PRIMEFARMLAND"
+)
+```
+
+ma_soil_primefarm contains information only about farmland;
+we get "All areas are prime farmland" and "Farmland of statewide importance".
+In theory there are other levels, but none appear in this AOI.
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatvector(
+    data = ma_soil_primefarm |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = FARMLNDCL)
+  ) +
+  the_rest_of_the_map +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatvector(
+    data = ma_soil_primefarm |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv),
+    aes(fill = FARMLNDCL)
+  ) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "Prime Farmland")
+
+```
+
+ma_soil_top20 has lots of soil information, including information about
+farmland. In theory this should give us information about more soil
+types; in practice, plotting just FRMLNDCLS (arbitrarily distinct from
+FRMLNDCL in ma_soil_primefarm) gives the same answer plus a bunch of
+mess from plots that aren't farmland.
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatvector(
+    data = ma_soil_top20 |>
+      select(FRMLNDCLS) |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv) |>
+      mutate(FRMLNDCLS = if_else(FRMLNDCLS == "Not prime farmland", NA, FRMLNDCLS)),
+    aes(fill = FRMLNDCLS),
+    color = "transparent"
+  ) +
+  the_rest_of_the_map +
+  scale_fill_discrete(name = "Farmland Class", na.value = "transparent")
+```
+
+Since the two give the same answer, I recommend using ma_soil_primefarm.
 
 # Adjacency
 
@@ -822,13 +985,11 @@ adj_classes <- tribble(
 )
 ```
 
-Other things to look into:
+Other possible sources of candidate edges:
 
 * MassGIS landcover - most recent is 2016
 * Meta Treecover?
-* Impervious product?
-
-
+* Impervious product? Both MA and GHSL have them.
 
 ## NLCD to Adjacency
 
@@ -867,11 +1028,7 @@ levels(nlcd_adj_classes) <- adj_classes
 ```
 
 ```{r}
-ggplot() +
-  geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
-  the_rest_of_the_map +
-  ggtitle("Collapsed NLCD Land Cover Classes") +
-  labs(fill = "Land Cover Class") +
+nlcd_adjacency_map <- list(
   scale_fill_manual(
     name = "Land Cover Class",
     values = list(
@@ -888,7 +1045,19 @@ ggplot() +
     ),
     na.value = "transparent"
   )
+)
 
+ggplot() +
+  geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  nlcd_adjacency_map +
+  ggplot() +
+  geom_spatraster(data = nlcd_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  nlcd_adjacency_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "NLCD Collapsed Land Cover Class")
 ```
 
 ## ESA to Adjacency
@@ -915,10 +1084,7 @@ levels(esa_adj_classes) <- adj_classes
 
 
 ```{r}
-ggplot() +
-  geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
-  the_rest_of_the_map +
-  ggtitle("Collapsed ESA Worldover Classes") +
+esa_adjacency_map <- list(
   scale_fill_manual(
     name = "Land Cover Class",
     values = list(
@@ -935,7 +1101,19 @@ ggplot() +
     ),
     na.value = "transparent"
   )
+)
 
+ggplot() +
+  geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  esa_adjacency_map +
+  ggplot() +
+  geom_spatraster(data = esa_adj_classes, use_coltab = FALSE) +
+  the_rest_of_the_map +
+  esa_adjacency_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = "ESA Collapsed Land Cover Class")
 ```
 
 ## NLCD ESA SxS
@@ -1006,13 +1184,12 @@ pvn <- 2^0
 pvs <- 2^1
 pve <- 2^2
 pvw <- 2^3
+
 # Impervious Edges
 ipw <- 2^4
 ipe <- 2^5
 ips <- 2^6
 ipn <- 2^7
-
-
 
 edge_detect <- function(x, ...) {
   lc_water <- 1
@@ -1026,47 +1203,46 @@ edge_detect <- function(x, ...) {
   lc_east <- x[[6]]
   lc_south <- x[[8]]
 
-  if (is.na(lc_center)) {
+  if (is.na(lc_center) | lc_center != lc_forest) {
     return(NA)
   }
   
   edges = 0
-  if (lc_center == lc_forest) {
-    if (!is.na(lc_north) & !is.na(lc_south)) {
-      if (lc_north == lc_forest) {
-        if (lc_south == lc_impervious) {
-          edges <- edges + ips
-        } else if (lc_south == lc_pervious) {
-          edges <- edges + pvs
-      }
-      } else if (lc_south == lc_forest) {
-        if (lc_north == lc_impervious) {
-          edges <- edges + ipn
-        }
-        else if (lc_north == lc_pervious) {
-          edges <- edges + pvn
-        }
-      }
+  if (!is.na(lc_north) & !is.na(lc_south)) {
+    if (lc_north == lc_forest) {
+      if (lc_south == lc_impervious) {
+        edges <- edges + ips
+      } else if (lc_south == lc_pervious) {
+        edges <- edges + pvs
     }
-
-    if (!is.na(lc_east) & !is.na(lc_west)) {
-      if (lc_east == lc_forest) {
-        if (lc_west == lc_impervious) {
-          edges <- edges + ipw
-        }
-        else if (lc_west == lc_pervious) {
-          edges <- edges + pvw
-        }
-      } else if (lc_west == lc_forest) {
-        if (lc_east == lc_impervious) {
-          edges <- edges + ipe
-        }
-        else if (lc_east == lc_pervious) {
-          edges <- edges + pve
-        }
+    } else if (lc_south == lc_forest) {
+      if (lc_north == lc_impervious) {
+        edges <- edges + ipn
+      }
+      else if (lc_north == lc_pervious) {
+        edges <- edges + pvn
       }
     }
   }
+
+  if (!is.na(lc_east) & !is.na(lc_west)) {
+    if (lc_east == lc_forest) {
+      if (lc_west == lc_impervious) {
+        edges <- edges + ipw
+      }
+      else if (lc_west == lc_pervious) {
+        edges <- edges + pvw
+      }
+    } else if (lc_west == lc_forest) {
+      if (lc_east == lc_impervious) {
+        edges <- edges + ipe
+      }
+      else if (lc_east == lc_pervious) {
+        edges <- edges + pve
+      }
+    }
+  }
+
   if (edges == 0) {
     return(NA)
   } else {
@@ -1197,6 +1373,55 @@ ggplot() +
 
 ```
 
+### NLCD vs Rope
+
+
+```{r}
+ggplot() +
+  geom_spatraster(data = nlcd_edges_pi, use_coltab = FALSE) +
+  geom_spatvector(
+    data = rope_plots,
+    aes(
+      color = "Rope Plot",
+      linetype = "Rope Plot"
+    ),
+    size = 0.75
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster(data = nlcd_edges_pi) +
+  geom_spatvector(
+    data = rope_plots,
+    aes(
+      color = "Rope Plot",
+      linetype = "Rope Plot"
+    ),
+    size = 0.75
+  ) +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  scale_fill_manual(
+    name = "Edge Type",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = c("Impervious", "Pervious"),
+    na.value = "transparent"
+  ) +
+  plot_layout(guides = "collect")
+
+```
+
 ### NLCD N/S
 
 This doesn't work; it's of the opinion that there are no N/S Pervious
@@ -1267,7 +1492,6 @@ ggplot() +
 
 ```
 
-
 ### ESA Edge Type
 
 ```{r}
@@ -1311,7 +1535,9 @@ ggplot() +
 
 ```
 
-# Edge Access
+# Overlays
+
+## Edge Access
 
 Putting edges and access together
 
@@ -1375,4 +1601,53 @@ ggplot() +
   plot_layout(guides = "collect")
 ```
 
+
+## Soil Type
+
+
+```{r}
+edge_soil_map <- list(
+  geom_spatvector(
+    data = ma_soil_primefarm |>
+      terra::project(neon_aop_harv) |>
+      terra::intersect(neon_aop_harv) |>
+      mutate(FARMLNDCL = recode_values(
+        FARMLNDCL,
+        "All areas are prime farmland" ~ "Prime farmland",
+        "Farmland of statewide importance" ~ "Other farmland"
+      )),
+    aes(fill = FARMLNDCL)
+  ),
+  geom_spatraster(
+    data = nlcd_edges_pi,
+    use_coltab = FALSE
+  ),
+  scale_fill_manual(
+    name = "Legend",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen",
+      "Prime farmland" = "lightblue",
+      "Other farmland" = "orange2"
+    ),
+    breaks = c(
+      "Impervious",
+      "Pervious",
+      "Prime farmland",
+      "Other farmland"
+    ),
+    na.value = "transparent"
+  )
+)
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  edge_soil_map +
+  the_rest_of_the_map +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  edge_soil_map +
+  the_rest_of_the_map +
+  coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
+  plot_layout(guides = "collect")
+```
 
