@@ -218,6 +218,13 @@ tar_target(
 )
 ```
 
+```{targets nlcd_year}
+tar_target(
+  nlcd_year,
+  2024
+)
+```
+
 ```{targets nlcd_file}
 tar_file(
   nlcd_file,
@@ -234,7 +241,6 @@ tar_file(
 tar_terra_rast(
   nlcd,
   {
-    nlcd_year <- 2024
     terra::rast(
       file.path(
         "/vsizip",
@@ -245,6 +251,52 @@ tar_terra_rast(
   }
 )
 ```
+
+```{targets nlcd_levels}
+tar_target(
+  nlcd_levels,
+    terra::rast(
+      file.path(
+        "/vsizip",
+        nlcd_file,
+        paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
+      )
+    ) |>
+    levels()
+)
+```
+
+```{targets nlcd_coltab}
+tar_target(
+  nlcd_coltab,
+    terra::rast(
+      file.path(
+        "/vsizip",
+        nlcd_file,
+        paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
+      )
+    ) |>
+    coltab()
+)
+```
+
+```{targets nlcd}
+tar_terra_rast(
+  nlcd,
+  {
+    terra::rast(
+      file.path(
+        "/vsizip",
+        nlcd_file,
+        paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
+      )
+    ) |>
+      `levels<-`(nlcd_levels) |>
+      `coltab<-`(value = nlcd_coltab)
+  }
+)
+```
+
 
 ## Wetlands
 
@@ -269,4 +321,53 @@ tar_terra_vect(
 
 # Adjacency
 
+## Adjacency Classes
+
+```{targets adj_classes}
+tar_target(
+  adj_classes,
+  tribble(
+    ~ID, ~category,
+    1, "Water",
+    2, "Impervious",
+    3, "Pervious",
+    4, "Forest"
+  )
+)
+```
+
+## NLCD Adjacency
+
+```{targets nlcd_adj_classes}
+tar_terra_rast(
+  nlcd_adj_classes,
+  {
+    nlcd_reclassification <- tribble(
+      ~is, ~becomes,
+      "Open Water", "Water",
+      "Developed, Open Space", "Impervious",
+      "Developed, Low Intensity", "Impervious",
+      "Developed, Medium Intensity", "Impervious",
+      "Developed, High Intensity", "Impervious",
+      "Barren Land", "Pervious",
+      "Deciduous Forest", "Forest",
+      "Evergreen Forest", "Forest",
+      "Mixed Forest", "Forest",
+      "Shrub/Scrub", "Pervious",
+      "Grassland/Herbaceous", "Pervious",
+      "Pasture/Hay", "Pervious",
+      "Cultivated Crops", "Pervious",
+      "Woody Wetlands", "Water",
+      "Emergent Herbaceous Wetlands", "Water"
+    ) |>
+      left_join(nlcd_levels[[1]], by = join_by(is == `NLCD Land Cover Class`)) |>
+      left_join(adj_classes, by = join_by(becomes == category)) |>
+      select(is = `Pixel Value`, becomes = `ID`)
+    
+    nlcd |>
+      terra::classify(nlcd_reclassification) |>
+      `levels<-`(adj_classes)
+  }
+)
+```
 
