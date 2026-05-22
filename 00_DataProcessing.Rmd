@@ -1,0 +1,250 @@
+---
+title: "00_DataProcessing"
+output: html_document
+---
+
+# Setup
+
+This document contains the targets definitions for data processing.
+
+Do data exploration in other documents, then when data processing is
+clear, copy it into here.
+
+```{r setup, include = FALSE}
+library(targets)
+library(tarchetypes)
+library(geotargets)
+```
+
+# Globals
+
+```{targets globals, tar_globals = TRUE}
+options(tidyverse.quiet = TRUE)
+tar_option_set(
+  packages = c(
+    "tarchetypes",
+    "tidyverse",
+    "terra",
+    "tidyterra",
+    "geotargets",
+    "sf",
+    "sfheaders",
+    "gdalUtilities"
+  )
+)
+tar_source()
+```
+
+# Layers
+
+## State Outlines
+
+```{targets state_outlines}
+tar_terra_vect(
+  state_outlines,
+  map_data("state", region = c(
+      "Connecticut", "Massachusetts", "Rhode Island", "New Hampshire", "Vermont"
+    )) |>
+    sfheaders::sf_polygon(
+      obj = _,
+      x = "long",
+      y = "lat",
+      polygon_id = "group"
+    ) |>
+    sf::`st_crs<-`(sf::st_crs("epsg:4326")) |>
+    terra::vect()
+)
+```
+
+```{targets ma_outline}
+tar_terra_vect(
+  ma_outline,
+  state_outlines |>
+    filter(group == 3)
+)
+
+```
+
+## Town Outlines
+
+```{targets ma_towns_file}
+tar_file(
+  ma_towns_file,
+  file.path("data/raw/MA_CENSUS2020TOWNS_SHP.zip")
+)
+```
+
+```{targets ma_towns}
+tar_terra_vect(
+  ma_towns,
+  terra::vect(file.path(
+    "/vsizip",
+    ma_towns_file,
+    "CENSUS2020TOWNS_POLY.shp"
+  ))
+)
+```
+## NEON AOP HARV
+
+NEON flies over Harvard Forest, and much more.
+The flightbox is our region of interest.
+
+```{targets neon_aop_harv_file}
+tar_file(
+  neon_aop_harv_file,
+  file.path("data/raw/NEON_AOP_flightBoxes_0.zip")
+)
+```
+
+```{targets neon_aop_harv}
+tar_terra_vect(
+  neon_aop_harv,
+  terra::vect(file.path(
+     "/vsizip",
+     neon_aop_harv_file,
+     "AOP_flightBoxes",
+     "AOP_flightboxesAllSites.shp"
+  )) |>
+    filter(siteID == "HARV") |>
+    filter(priority == 1)
+)
+```
+
+For zoom levels, see:
+https://wiki.openstreetmap.org/wiki/Zoom_levels
+
+0. Whole World
+5. Country
+10. Metropolitan Area
+15. Small Road
+20. Mid-Size Building
+
+```{targets basemap}
+tar_terra_rast(
+  basemap,
+  {
+    neon_aop_harv_xlim <- c(ext(neon_aop_harv)$xmin - 0.015, ext(neon_aop_harv)$xmax + 0.015)
+    neon_aop_harv_ylim <- c(ext(neon_aop_harv)$ymin - 0.015, ext(neon_aop_harv)$ymax + 0.015)
+    basemap_area <- terra::ext(
+      neon_aop_harv_xlim["xmin"],
+      neon_aop_harv_xlim["xmax"],
+      neon_aop_harv_ylim["ymin"],
+      neon_aop_harv_ylim["ymax"]
+    ) |>
+      terra::vect(crs = crs("epsg:4326"))
+    
+    neon_aop_web <- basemap_area |>
+      terra::project(crs("epsg:3857")) |> # use webmercator
+      st_as_sf()
+    
+    maptiles::get_tiles(
+      neon_aop_web,
+      provider = "CartoDB.VoyagerNoLabels",
+      zoom = 8, # US County
+      crop = TRUE
+    )
+  }
+)
+```
+
+```{targets basemap_detail}
+tar_terra_rast(
+  basemap_detail,
+  {
+    detail_area <- terra::ext(-72.20, -72.15, 42.50, 42.55) |>
+      terra::vect(crs = crs("epsg:4326"))
+    detail_xlim <- c(ext(detail_area)$xmin, ext(detail_area)$xmax)
+    detail_ylim <- c(ext(detail_area)$ymin, ext(detail_area)$ymax)
+    
+    detail_area_web <- detail_area |>
+      terra::project(crs("epsg:3857")) |> # use webmercator
+      st_as_sf()
+  
+    maptiles::get_tiles(
+      detail_area_web,
+      provider = "OpenStreetMap",
+      zoom = 13, # village
+      crop =TRUE
+    )
+  }
+)
+```
+
+## Rope Plots
+
+```{targets rope_plots_file}
+tar_file(
+  rope_plots_file,
+  file.path("data/raw/Rope Plots Data Entry.xls")
+)
+```
+
+```{targets rope_plots}
+tar_terra_vect(
+  rope_plots,
+  readxl::read_xls(
+    rope_plots_file,
+    sheet = "Rope Plot Sites"
+  ) |>
+    mutate(
+      lat = as.numeric(gsub("^N ?([^°]+)°.*$", "\\1", GPS)),
+      lon = -as.numeric(gsub("^.*W ?([^°]+)°$", "\\1", GPS))
+    ) |>
+    terra::vect()
+)
+```
+
+## NLCD
+
+The NLCD available from the MRLC viewer is much higher resolution than
+the NLCD available from EarthExplorer.
+
+* MRLC Viewer: https://www.mrlc.gov/viewer/
+* Earth Explorer: https://earthexplorer.usgs.gov
+
+MRLC generates a zipfile with the UUIDs both in the name of the
+zipfile and in the names of the files contained therein. The UUID
+is the identity of the job used to create the file.
+
+Nik's Downloads:
+
+* bddf54a4-322c-40a1-bf88-b050f871fad8: 2024
+* c1a704ee-7eb3-47cc-ba90-39e87f9ee635: 1985 - 2024
+
+```{targets nlcd_uuid}
+tar_target(
+  nlcd_uuid,
+  "c1a704ee-7eb3-47cc-ba90-39e87f9ee635"
+)
+```
+
+```{targets nlcd_file}
+tar_file(
+  nlcd_file,
+  {
+    file.path(
+      "data/raw",
+      paste0("NLCD_", nlcd_uuid, ".zip")
+    )
+  }
+)
+```
+
+```{targets nlcd}
+tar_terra_rast(
+  nlcd,
+  {
+    nlcd_year <- 2024
+    terra::rast(
+      file.path(
+        "/vsizip",
+        nlcd_file,
+        paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
+      )
+    )
+  }
+)
+```
+# Adjacency
+
+

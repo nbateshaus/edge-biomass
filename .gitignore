@@ -55,3 +55,4 @@ rsconnect/
 data/raw/**
 data/processed/**
 
+.positai
