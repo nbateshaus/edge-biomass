@@ -245,6 +245,28 @@ tar_terra_rast(
   }
 )
 ```
+
+## Wetlands
+
+```{targets ma_wetlands_file}
+tar_file(
+  ma_wetlands_file,
+  file.path("data/raw/wetlandsdep.zip")
+)
+```
+
+```{targets ma_wetlands}
+tar_terra_vect(
+  ma_wetlands,
+  terra::vect(file.path(
+    "/vsizip",
+    ma_wetlands_file,
+    "wetlandsdep",
+    "WETLANDSDEP_POLY.shp"
+  ))
+)
+```
+
 # Adjacency
 
 
