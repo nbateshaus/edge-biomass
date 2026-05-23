@@ -218,10 +218,52 @@ ggplot() +
 
 ## Adjacent Surface
 
-Do this against simplified nlcd - look at the 8 adjacent cells, if any
-is impervious, the edge is impervious, otherwise pervious.
-
-see: terra::adjacent()
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = impervious_adj |>
+      `levels<-`(impervious_adj_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = list(
+      "Impervious",
+      "Pervious"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = impervious_adj |>
+      `levels<-`(impervious_adj_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
+    ),
+    breaks = list(
+      "Impervious",
+      "Pervious"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```
 
 ## Aspect
 
