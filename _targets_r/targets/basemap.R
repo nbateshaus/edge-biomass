@@ -17,8 +17,8 @@ tar_terra_rast(
     
     maptiles::get_tiles(
       neon_aop_web,
-      provider = "CartoDB.VoyagerNoLabels",
-      zoom = 8, # US County
+      provider = "OpenTopoMap",
+      zoom = 11,
       crop = TRUE
     )
   }

@@ -9,6 +9,9 @@
 # User-specific files
 .Ruserdata
 
+# RStudio AI Agent Configuration
+.positai
+
 # Example code in package build process
 *-Ex.R
 
@@ -55,4 +58,6 @@ rsconnect/
 data/raw/**
 data/processed/**
 
-.positai
+# Knit output for Targets rendering
+00_DataProcessing.html
+

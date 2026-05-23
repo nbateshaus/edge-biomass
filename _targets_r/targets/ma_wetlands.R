@@ -1,0 +1,9 @@
+tar_terra_vect(
+  ma_wetlands,
+  terra::vect(file.path(
+    "/vsizip",
+    ma_wetlands_file,
+    "wetlandsdep",
+    "WETLANDSDEP_POLY.shp"
+  ))
+)

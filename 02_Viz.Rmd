@@ -1,0 +1,38 @@
+---
+title: "02_Viz"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(targets)
+library(tarchetypes)
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(ggspatial)
+library(patchwork)
+tar_source()
+tar_objects_defined_in_rmd("00_DataProcessing.Rmd") |>
+  tar_load()
+```
+
+# Base Map
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  the_rest_of_the_map +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  the_rest_of_the_map +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```

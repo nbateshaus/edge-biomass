@@ -12,8 +12,8 @@ tar_terra_rast(
   
     maptiles::get_tiles(
       detail_area_web,
-      provider = "OpenStreetMap",
-      zoom = 13, # village
+      provider = "OpenTopoMap",
+      zoom = 13,
       crop =TRUE
     )
   }

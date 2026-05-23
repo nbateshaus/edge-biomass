@@ -19,6 +19,8 @@ library(geotargets)
 # Globals
 
 ```{targets globals, tar_globals = TRUE}
+library(tarchetypes)
+library(geotargets)
 options(tidyverse.quiet = TRUE)
 tar_option_set(
   packages = c(
@@ -110,6 +112,8 @@ tar_terra_vect(
 )
 ```
 
+## Basemaps
+
 For zoom levels, see:
 https://wiki.openstreetmap.org/wiki/Zoom_levels
 
@@ -139,8 +143,8 @@ tar_terra_rast(
     
     maptiles::get_tiles(
       neon_aop_web,
-      provider = "CartoDB.VoyagerNoLabels",
-      zoom = 8, # US County
+      provider = "OpenTopoMap",
+      zoom = 11,
       crop = TRUE
     )
   }
@@ -162,8 +166,8 @@ tar_terra_rast(
   
     maptiles::get_tiles(
       detail_area_web,
-      provider = "OpenStreetMap",
-      zoom = 13, # village
+      provider = "OpenTopoMap",
+      zoom = 13,
       crop =TRUE
     )
   }
@@ -280,24 +284,6 @@ tar_target(
 )
 ```
 
-```{targets nlcd}
-tar_terra_rast(
-  nlcd,
-  {
-    terra::rast(
-      file.path(
-        "/vsizip",
-        nlcd_file,
-        paste0("Annual_NLCD_LndCov_", nlcd_year, "_CU_C1V1_", nlcd_uuid, ".tiff")
-      )
-    ) |>
-      `levels<-`(nlcd_levels) |>
-      `coltab<-`(value = nlcd_coltab)
-  }
-)
-```
-
-
 ## Wetlands
 
 ```{targets ma_wetlands_file}
@@ -319,13 +305,146 @@ tar_terra_vect(
 )
 ```
 
+
+# The Rest Of The Map
+
+In general, we'll be plotting a thing, and we'll want the rest of the
+map to be consistent. Here is the rest of the map.
+
+Ref: https://knowyourmeme.com/memes/how-to-draw-an-owl
+
+```{targets the_rest_of_the_map}
+tar_target(
+  the_rest_of_the_map,
+  {
+    library(ggspatial)
+    
+    neon_aop_harv_xlim <- c(ext(neon_aop_harv)$xmin - 0.015, ext(neon_aop_harv)$xmax + 0.015)
+    neon_aop_harv_ylim <- c(ext(neon_aop_harv)$ymin - 0.015, ext(neon_aop_harv)$ymax + 0.015)
+    
+    detail_area <- terra::ext(-72.20, -72.15, 42.50, 42.55) |>
+      terra::vect(crs = crs("epsg:4326"))
+    detail_xlim <- c(ext(detail_area)$xmin, ext(detail_area)$xmax)
+    detail_ylim <- c(ext(detail_area)$ymin, ext(detail_area)$ymax)
+    
+    harvard_forest <- terra::vect(
+      tibble(x=-72.1899, y=42.5319),
+      crs=crs("epsg:4326")
+    )
+    
+    list(
+      geom_spatvector(
+        data = neon_aop_harv,
+        aes(
+          color = "NEON AOP",
+          linetype = "NEON AOP"
+        ),
+        fill = "transparent"
+      ),
+      geom_spatvector(
+        data = ma_towns,
+        aes(
+          color = "Town Borders",
+          linetype = "Town Borders"
+        ),
+        fill = "transparent"
+      ),
+      geom_spatvector(
+        data = detail_area,
+        aes(
+          color = "Detail Area",
+          linetype = "Detail Area"
+        ),
+        fill = "transparent"
+      ),
+      # This one is a black background for the HF triangle;
+      # it does not show in the legend.
+      geom_spatvector(
+        data = harvard_forest,
+        color = "black",
+        shape = "triangle",
+        size = 2.5
+      ),
+      geom_spatvector(
+        data = harvard_forest,
+        aes(
+          color = "Harvard Forest",
+          linetype = "Harvard Forest"
+        ),
+        shape = "triangle"
+      ),
+      geom_spatvector(
+        data = rope_plots,
+        aes(
+          color = "Rope Plot",
+          linetype = "Rope Plot"
+        )
+      ),
+      coord_sf(
+        crs = crs(neon_aop_harv),
+        xlim = neon_aop_harv_xlim,
+        ylim = neon_aop_harv_ylim
+      ),
+      scale_color_manual(
+        name = "Legend",
+        values = c(
+          "Town Borders" = "black",
+          "NEON AOP" = "red",
+          "Detail Area" = "blue",
+          "Harvard Forest" = "gold",
+          "Rope Plot" = "black"
+        ),
+        breaks = c(
+          "Town Borders",
+          "NEON AOP",
+          "Detail Area",
+          "Harvard Forest",
+          "Rope Plot"
+        )
+      ),
+      scale_linetype_manual(
+        name = "Legend",
+        values = c(
+          "Town Borders" = "dotted",
+          "NEON AOP" = "solid",
+          "Detail Area" = "dashed",
+          "Harvard Forest" = "solid",
+          "Rope Plot" = "solid"
+        ),
+        breaks = c(
+          "Town Borders",
+          "NEON AOP",
+          "Detail Area",
+          "Harvard Forest",
+          "Rope Plot"
+        )
+      ),
+      theme_bw(),
+      theme(axis.text.x = element_text(angle = -30, hjust = 0, vjust = 1)),
+      annotation_scale(
+        location = "br",
+        pad_x = unit(0.65, "cm"),
+        pad_y = unit(0.45, "cm")
+      ),
+      annotation_north_arrow(
+        location = "tr",
+        width = unit(0.75, "cm"),
+        pad_x = unit(0.00, "cm"),
+        pad_y = unit(1, "cm"),
+        style = north_arrow_minimal
+      )
+    )
+  }
+)
+```
+
 # Adjacency
 
-## Adjacency Classes
+## Simplified Landcover Classes
 
-```{targets adj_classes}
+```{targets lc4_classes}
 tar_target(
-  adj_classes,
+  lc4_classes,
   tribble(
     ~ID, ~category,
     1, "Water",
@@ -338,9 +457,9 @@ tar_target(
 
 ## NLCD Adjacency
 
-```{targets nlcd_adj_classes}
+```{targets lc4}
 tar_terra_rast(
-  nlcd_adj_classes,
+  lc4,
   {
     nlcd_reclassification <- tribble(
       ~is, ~becomes,
@@ -361,13 +480,36 @@ tar_terra_rast(
       "Emergent Herbaceous Wetlands", "Water"
     ) |>
       left_join(nlcd_levels[[1]], by = join_by(is == `NLCD Land Cover Class`)) |>
-      left_join(adj_classes, by = join_by(becomes == category)) |>
+      left_join(lc4_classes, by = join_by(becomes == category)) |>
       select(is = `Pixel Value`, becomes = `ID`)
     
     nlcd |>
+      `levels<-`(nlcd_levels) |>
       terra::classify(nlcd_reclassification) |>
-      `levels<-`(adj_classes)
+      `levels<-`(lc4_classes)
   }
 )
 ```
+## Edges
 
+There are multiple ways to find edges. I'll use distance from forest to
+non-forest landcover:
+
+- Within 30m = edge
+- From 30m to 100m = transitional
+- 100m+ = interior
+
+```{targets edge_distance}
+tar_terra_rast(
+  edge_distance,
+  {
+    # terra::distance fills NA pixels with the distance to the nearest
+    # non-NA pixel. Remove forest pixes; these will be filled in by
+    # distance.
+    lc4 |>
+      `levels<-`(lc4_classes) |>
+      filter(category != "Forest") |>
+      terra::distance()
+  }
+)
+```
