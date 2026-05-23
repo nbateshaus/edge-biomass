@@ -168,26 +168,21 @@ ggplot() +
 
 ## Interior Adjacent
 
-Nik's Idea: use terra::distance to find edges (1) that are within 120
-meters of interior (3).
-
-Method:
-We're going to fill edge,
-We'll ignore transition and non-forest,
-filter to 
-
 ```{r}
 ggplot() +
   geom_spatraster_rgb(data = basemap) +
-  geom_spatraster(data = distance_to_interior) +
+  geom_spatraster(
+    data = interior_adj |>
+      `levels<-`(interior_adj_classes)
+  ) +
   the_rest_of_the_map +
   scale_fill_manual(
     values = list(
       "Isolated" = "red",
-      "Interior-Adjacent" = "forestgreen"
+      "Interior Adjacent" = "forestgreen"
     ),
     breaks = list(
-      "Interior-Adjacent",
+      "Interior Adjacent",
       "Isolated"
     ),
     na.value = "transparent"
@@ -195,15 +190,18 @@ ggplot() +
   ggtitle("Study Area") +
   ggplot() +
   geom_spatraster_rgb(data = basemap_detail) +
-  geom_spatraster(data = distance_to_interior) +
+  geom_spatraster(
+    data = interior_adj |>
+      `levels<-`(interior_adj_classes)
+  ) +
   the_rest_of_the_map +
   scale_fill_manual(
     values = list(
       "Isolated" = "red",
-      "Interior-Adjacent" = "forestgreen"
+      "Interior Adjacent" = "forestgreen"
     ),
     breaks = list(
-      "Interior-Adjacent",
+      "Interior Adjacent",
       "Isolated"
     ),
     na.value = "transparent"
@@ -215,20 +213,6 @@ ggplot() +
   ) +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
-```
-
-```{targets interior_adj}
-interior_adj <- edge_distance |>
-  filter(category != 1) |>
-  terra::distance(
-    exclude = 2 # transition
-  ) |>
-  filter(is.finite(category) & category > 0) |>
-  mutate(category = case_when(
-    category <= 120 ~ 1,
-    category  > 120 ~ 0
-  )) |>
-  terra::mask(edge_distance)
 ```
 
 
