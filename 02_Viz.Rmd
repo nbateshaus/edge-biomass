@@ -36,3 +36,59 @@ ggplot() +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
 ```
+# Distance to Edge
+
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = edge_distance |>
+      `levels<-`(edge_classes)
+  ) +
+  the_rest_of_the_map +
+  ggtitle("Study Area") +
+  scale_fill_manual(
+    values = list(
+      "Edge" = "orange",
+      "Transition" = "green",
+      "Interior" = "forestgreen"
+    ),
+    breaks = list(
+      "Non-Forest",
+      "Edge",
+      "Transition",
+      "Interior"
+    ),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = edge_distance |>
+      `levels<-`(edge_classes)
+  ) +
+  the_rest_of_the_map +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  scale_fill_manual(
+    values = list(
+      "Edge" = "orange",
+      "Transition" = "green",
+      "Interior" = "forestgreen"
+    ),
+    breaks = list(
+      "Non-Forest",
+      "Edge",
+      "Transition",
+      "Interior"
+    ),
+    na.value = "transparent"
+  ) +
+  plot_layout(guides = "collect")
+```
+
