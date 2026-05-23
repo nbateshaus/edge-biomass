@@ -36,8 +36,10 @@ ggplot() +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
 ```
-# Distance to Edge
 
+# Edges
+
+## Distance to Edge
 
 ```{r}
 ggplot() +
@@ -91,4 +93,157 @@ ggplot() +
   ) +
   plot_layout(guides = "collect")
 ```
+
+## Streams & Wetlands
+
+We don't want edges that are close to wetlands.
+
+MassGIS wetlands does not include streams.
+
+MassGIS rivers and streams only has 6 streams in the NEON HARV AOP,
+and they're all covered by other wetlands products.
+
+See: https://www.mass.gov/info-details/massgis-data-massdep-hydrography-125000#attributes
+
+```{asis}
+ma_streams <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw",
+  "hydro25k.zip",
+  "HYDRO25K_POLY.shp"
+))
+```
+
+It seems that, if I want streams, I may need to turn to OpenTopoMap.
+
+Just use wetlands for now; hopefully streams are small enough to not matter.
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = wetland_adj |>
+      `levels<-`(wetland_adj_classes)
+  ) +
+  the_rest_of_the_map +
+  ggtitle("Study Area") +
+  scale_fill_manual(
+    values = c(
+      "Wet" = "red",
+      "Dry" = "forestgreen"
+    ),
+    breaks = c(
+      "Wet",
+      "Dry"
+    ),
+    na.value = "transparent"
+  ) +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = wetland_adj |>
+      `levels<-`(wetland_adj_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = c(
+      "Wet" = "red",
+      "Dry" = "forestgreen"
+    ),
+    breaks = c(
+      "Wet",
+      "Dry"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+  
+```
+
+## Interior Adjacent
+
+Nik's Idea: use terra::distance to find edges (1) that are within 120
+meters of interior (3).
+
+Method:
+We're going to fill edge,
+We'll ignore transition and non-forest,
+filter to 
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(data = distance_to_interior) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = list(
+      "Isolated" = "red",
+      "Interior-Adjacent" = "forestgreen"
+    ),
+    breaks = list(
+      "Interior-Adjacent",
+      "Isolated"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(data = distance_to_interior) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = list(
+      "Isolated" = "red",
+      "Interior-Adjacent" = "forestgreen"
+    ),
+    breaks = list(
+      "Interior-Adjacent",
+      "Isolated"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```
+
+```{targets interior_adj}
+interior_adj <- edge_distance |>
+  filter(category != 1) |>
+  terra::distance(
+    exclude = 2 # transition
+  ) |>
+  filter(is.finite(category) & category > 0) |>
+  mutate(category = case_when(
+    category <= 120 ~ 1,
+    category  > 120 ~ 0
+  )) |>
+  terra::mask(edge_distance)
+```
+
+
+## Adjacent Surface
+
+Do this against simplified nlcd - look at the 8 adjacent cells, if any
+is impervious, the edge is impervious, otherwise pervious.
+
+see: terra::adjacent()
+
+## Aspect
+
+Look at 8 adjacent cells, if 123 is non-forest then north, if 678 then
+south, if both north and south, reject.
+
+## Final Edges
+
 
