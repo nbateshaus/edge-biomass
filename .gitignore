@@ -51,6 +51,9 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
+# Targets local objects
+_targets/
+
 # MacOS Garbage
 **/.DS_Store
 
