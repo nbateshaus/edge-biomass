@@ -223,7 +223,7 @@ ggplot() +
   geom_spatraster_rgb(data = basemap) +
   geom_spatraster(
     data = impervious_adj |>
-      `levels<-`(impervious_adj_classes)
+      `levels<-`(lc4_classes)
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
@@ -242,7 +242,7 @@ ggplot() +
   geom_spatraster_rgb(data = basemap_detail) +
   geom_spatraster(
     data = impervious_adj |>
-      `levels<-`(impervious_adj_classes)
+      `levels<-`(lc4_classes)
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
@@ -328,4 +328,96 @@ ggplot() +
 
 ## Final Edges
 
+We want:
 
+- N/S facing edges
+- Not near water
+- Connected to interior forest
+- With adjacent land cover
+
+```{r}
+final_edges <- c(
+    impervious_adj |> select(adjacent = category),
+    edge_aspect |> select(aspect = category)
+  ) |>
+  terra::mask(interior_adj == 1, maskvalues = 0) |>
+  terra::mask(wetland_adj == 1, maskvalues = 0) |>
+#  terra::mask(edge_aspect != 0, maskvalues = 0) |>
+  mutate(category = case_when(
+    aspect == 1 & adjacent == 3 ~ "North Pervious",
+    aspect == 0 & adjacent == 3 ~ "Other Pervious",
+    aspect == -1 & adjacent == 3 ~ "South Pervious",
+    aspect == 1 & adjacent == 2 ~ "North Impervious",
+    aspect == 0 & adjacent == 2 ~ "Other Impervious",
+    aspect == -1 & adjacent == 2 ~ "South Impervious",
+    .default = "Other"
+  )) |>
+  terra::mask(edge_distance |> filter(category == 1))
+```
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = final_edges,
+    aes(fill = category)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = c(
+      "North Pervious" = "darkgreen",
+      "Other Pervious" = "yellowgreen",
+      "South Pervious" = "green",
+      "North Impervious" = "darkred",
+      "Other Impervious" = "pink",
+      "South Impervious" = "red",
+      "Other" = "goldenrod"
+    ),
+    breaks = c(
+      "North Pervious",
+      "Other Pervious",
+      "South Pervious",
+      "North Impervious",
+      "Other Impervious",
+      "South Impervious",
+      "Other"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = final_edges,
+    aes(fill = category)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = c(
+      "North Pervious" = "darkgreen",
+      "Other Pervious" = "yellowgreen",
+      "South Pervious" = "green",
+      "North Impervious" = "darkred",
+      "Other Impervious" = "pink",
+      "South Impervious" = "red",
+      "Other" = "goldenrod"
+    ),
+    breaks = c(
+      "North Pervious",
+      "Other Pervious",
+      "South Pervious",
+      "North Impervious",
+      "Other Impervious",
+      "South Impervious",
+      "Other"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```

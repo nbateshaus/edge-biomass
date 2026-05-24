@@ -614,17 +614,6 @@ tar_terra_rast(
 ## Impervious Adjacent
 
 
-```{targets impervious_adj_classes}
-tar_target(
-  impervious_adj_classes,
-  tribble(
-    ~ID, ~category,
-    0, "Pervious",
-    1, "Impervious"
-  )
-)
-```
-
 ```{targets impervious_adj}
 tar_terra_rast(
   impervious_adj,
@@ -654,8 +643,8 @@ tar_terra_rast(
         na.rm = TRUE # max should ignore NA values
       ) |>
       mutate(category = case_when(
-        focal_max == 0 ~ 0,
-        focal_max == 1 ~ 1,
+        focal_max == 0 ~ 3, # Pervious
+        focal_max == 1 ~ 2, # Impervious
         .default = NA
       )) |>
       select(category) |>

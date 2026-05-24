@@ -26,8 +26,8 @@ tar_terra_rast(
         na.rm = TRUE # max should ignore NA values
       ) |>
       mutate(category = case_when(
-        focal_max == 0 ~ 0,
-        focal_max == 1 ~ 1,
+        focal_max == 0 ~ 3, # Pervious
+        focal_max == 1 ~ 2, # Impervious
         .default = NA
       )) |>
       select(category) |>
