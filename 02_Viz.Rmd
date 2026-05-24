@@ -37,7 +37,138 @@ ggplot() +
   plot_layout(guides = "collect")
 ```
 
+# Simplified Landcover
+
+
+```{r}
+ggplot() +
+  #geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = lc4 |>
+      `levels<-`(lc4_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  #geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = lc4 |>
+      `levels<-`(lc4_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```
+
 # Edges
+
+## Find the Edges
+
+```{r}
+edges <- lc4 |>
+  terra::focal(
+    w = 3, # 3x3 window
+    fun = "min", # 4 if all forest
+    na.rm = TRUE
+  ) |>
+  filter(focal_min < 4) |>
+  terra::mask(lc4 |> filter(category == 4))
+```
+
+
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = edges |>
+      `levels<-`(lc4_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = edges |>
+      `levels<-`(lc4_classes)
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    name = "Land Cover Class",
+    values = list(
+      "Water" = "blue",
+      "Impervious" = "red",
+      "Pervious" = "yellow",
+      "Forest" = "forestgreen"
+    ),
+    breaks = c(
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+```
 
 ## Distance to Edge
 
