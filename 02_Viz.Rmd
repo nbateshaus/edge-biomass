@@ -270,6 +270,62 @@ ggplot() +
 Look at 8 adjacent cells, if 123 is non-forest then north, if 678 then
 south, if both north and south, reject.
 
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatraster(
+    data = edge_aspect |>
+      mutate(category = case_when(
+        category == 1 ~ "north",
+        category == -1 ~ "south",
+        category == 0 ~ "other"
+      ))
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = c(
+      "north" = "red",
+      "south" = "forestgreen",
+      "other" = "yellow"
+    ),
+    breaks = c(
+      "north", "south", "other"
+    ),
+    na.value = "transparent"
+  ) +
+  ggtitle("Study Area") +
+  ggplot() +
+  geom_spatraster_rgb(data = basemap_detail) +
+  geom_spatraster(
+    data = edge_aspect |>
+      mutate(category = case_when(
+        category == 1 ~ "north",
+        category == -1 ~ "south",
+        category == 0 ~ "other"
+      ))
+  ) +
+  the_rest_of_the_map +
+  scale_fill_manual(
+    values = c(
+      "north" = "red",
+      "south" = "forestgreen",
+      "other" = "yellow"
+    ),
+    breaks = c(
+      "north", "south", "other"
+    ),
+    na.value = "transparent"
+  ) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  ) +
+  ggtitle("Detail Area") +
+  plot_layout(guides = "collect")
+
+```
+
 ## Final Edges
 
 
