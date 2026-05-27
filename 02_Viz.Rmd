@@ -398,8 +398,8 @@ ggplot() +
 
 ## Aspect
 
-Look at 8 adjacent cells, if 123 is non-forest then north, if 678 then
-south, if both north and south, reject.
+NOTE: Aspect doesn't work. It looks like terra::adjacent() is giving
+cells out of order or something; the results just don't make sense.
 
 ```{r}
 ggplot() +
@@ -473,17 +473,8 @@ final_edges <- c(
   ) |>
   terra::mask(interior_adj == 1, maskvalues = 0) |>
   terra::mask(wetland_adj == 1, maskvalues = 0) |>
-#  terra::mask(edge_aspect != 0, maskvalues = 0) |>
-  mutate(category = case_when(
-    aspect == 1 & adjacent == 3 ~ "North Pervious",
-    aspect == 0 & adjacent == 3 ~ "Other Pervious",
-    aspect == -1 & adjacent == 3 ~ "South Pervious",
-    aspect == 1 & adjacent == 2 ~ "North Impervious",
-    aspect == 0 & adjacent == 2 ~ "Other Impervious",
-    aspect == -1 & adjacent == 2 ~ "South Impervious",
-    .default = "Other"
-  )) |>
-  terra::mask(edge_distance |> filter(category == 1))
+  terra::mask(edge_distance |> filter(category == 1)) |>
+  `levels<-`(lc4_classes)
 ```
 
 ```{r}
@@ -495,23 +486,16 @@ ggplot() +
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
-    values = c(
-      "North Pervious" = "darkgreen",
-      "Other Pervious" = "yellowgreen",
-      "South Pervious" = "green",
-      "North Impervious" = "darkred",
-      "Other Impervious" = "pink",
-      "South Impervious" = "red",
-      "Other" = "goldenrod"
+    name = "Adjacent Landcover",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
     ),
     breaks = c(
-      "North Pervious",
-      "Other Pervious",
-      "South Pervious",
-      "North Impervious",
-      "Other Impervious",
-      "South Impervious",
-      "Other"
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
     ),
     na.value = "transparent"
   ) +
@@ -524,23 +508,16 @@ ggplot() +
   ) +
   the_rest_of_the_map +
   scale_fill_manual(
-    values = c(
-      "North Pervious" = "darkgreen",
-      "Other Pervious" = "yellowgreen",
-      "South Pervious" = "green",
-      "North Impervious" = "darkred",
-      "Other Impervious" = "pink",
-      "South Impervious" = "red",
-      "Other" = "goldenrod"
+    name = "Adjacent Landcover",
+    values = list(
+      "Impervious" = "red",
+      "Pervious" = "forestgreen"
     ),
     breaks = c(
-      "North Pervious",
-      "Other Pervious",
-      "South Pervious",
-      "North Impervious",
-      "Other Impervious",
-      "South Impervious",
-      "Other"
+      "Water",
+      "Impervious",
+      "Pervious",
+      "Forest"
     ),
     na.value = "transparent"
   ) +

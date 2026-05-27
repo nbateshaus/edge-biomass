@@ -655,7 +655,6 @@ tar_terra_rast(
 
 ## Aspect
 
-
 ```{targets edge_aspect}
 tar_terra_rast(
   edge_aspect,
