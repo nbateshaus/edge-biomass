@@ -1,0 +1,449 @@
+---
+title: "plots_data_analysis"
+author: "Luna Yin"
+output: html_document
+date: "2026-06-18"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE)
+wd <- "~/Desktop/Research/edge-analysis"
+knitr::opts_knit$set(root.dir = wd)
+
+# call in packages
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+# set working directory
+setwd(wd)
+
+```
+
+## Biomass Analysis
+
+
+```{r calculate biomass}
+
+# load data
+edge_plot_data <- read_csv("plot_data.csv")
+spCoef <- read_csv("biomass_equations.csv")
+
+# calculate biomass and combine dataframes
+edge_plot_data <- edge_plot_data %>%
+  ungroup() %>%
+  left_join(spCoef) %>%
+  mutate(
+    AGB_kg = ifelse(formulaType == 1, b1 * (dbh^b2),
+                   ifelse(formulaType == 3, exp(b1 + b2 * log(dbh)), # This is also the genJen formula; we updated genJen table to be formula = 3
+                          ifelse(formulaType == 5, (b1 * (dbh^b2)) / 1000,
+                                 ifelse(formulaType == 7, exp((b1 + b2 * log(dbh)) / 1000), NA))))
+  ) %>%
+  mutate(AGB_Mg = round(AGB_kg / 1000, 3))
+
+```
+
+
+
+```{r biomass per subplot}
+
+# sum biomass for each subplot
+subplot_summary <- edge_plot_data %>%
+  group_by(plot_id, subplot) %>%
+  summarise(biomass_Mg = sum(AGB_Mg, na.rm = TRUE), .groups = "drop")
+
+# plot bar graphs of biomass per subplot for each plot
+ggplot(subplot_summary, aes(x = factor(subplot), y = biomass_Mg, fill = factor(subplot))) +
+  geom_col(color = "black", width = 0.7) +
+  facet_wrap(~ plot_id) + 
+  scale_fill_brewer(palette = "YlGn", direction = -1) +
+  labs(
+    title = "Subplot Biomass Comparison Across Plots",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "Total Biomass (Mg)",
+    fill = "Subplot"
+  ) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "gray90"))
+
+ggsave("plots/subplot_biomass_bar.png", width = 8, height = 6, dpi = 300)
+
+# graph boxplot across all plots 
+ggplot(subplot_summary, aes(x = factor(subplot), y = biomass_Mg, fill = factor(subplot))) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 2, alpha = 0.5) +
+  labs(
+    title = "Overall Distribution of Biomass Across Subplots",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "Total Subplot Biomass (Mg)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggsave("plots/subplot_biomass_boxplot.png", width = 8, height = 6, dpi = 300)
+
+```
+
+## Basal Area Analysis
+
+```{r basal area analysis}
+
+# calculate basal area per tree and sum per subplot
+subplot_basal_area <- edge_plot_data %>%
+  mutate(tree_basal_area_m2 = 0.00007854 * (dbh^2)) %>%
+  group_by(plot_id, subplot) %>%
+  summarise(basal_area_m2 = sum(tree_basal_area_m2, na.rm = TRUE), .groups = "drop")
+
+subplot_summary <- subplot_summary %>%
+  left_join(subplot_basal_area, by = c("plot_id", "subplot"))
+
+# plot boxplots for basal area
+ggplot(subplot_summary, aes(x = factor(subplot), y = basal_area_m2, fill = factor(subplot))) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, notch = TRUE) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 2) +
+  scale_fill_brewer(palette = "Greens") +
+  labs(
+    title = "Total Basal Area by Subplot",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "Total Basal Area (m²)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggsave("plots/subplot_basal_area.png", width = 8, height = 6, dpi = 300)
+
+```
+
+
+## QMD Analysis
+
+```{r QMD analysis}
+
+# calculate QMD per subplot
+subplot_qmd <- edge_plot_data %>%
+  filter(!is.na(dbh) & dbh > 0) %>%
+  group_by(plot_id, subplot) %>%
+  summarise(
+    QMD_cm = sqrt(mean(dbh^2)),
+    tree_count = n(),
+    .groups = "drop"
+  )
+
+subplot_summary <- subplot_summary %>%
+  left_join(subplot_qmd, by = c("plot_id", "subplot"))
+
+# plot boxplots of QMD by subplot
+ggplot(subplot_qmd, aes(x = factor(subplot), y = QMD_cm, fill = factor(subplot))) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, notch = TRUE) +
+  geom_jitter(width = 0.1, alpha = 0.5, size = 2, color = "darkslategrey") +
+  scale_fill_brewer(palette = "Greens") +
+  labs(
+    title = "QMD by Subplot",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "QMD (cm)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggsave("plots/subplot_qmd.png", width = 8, height = 6, dpi = 300)
+
+```
+
+## Edge Cluster Analysis
+
+```{r edge cluster analysis}
+
+# assign cluster ID to each plot by leading letters of plot ID
+plot_clusters <- subplot_summary %>%
+  mutate(
+    cluster_id = str_sub(plot_id, start = 1, end = -2)
+  )
+
+# graph boxplot of biomass per subplot, colorcoded by cluster
+ggplot(plot_clusters, aes(x = factor(subplot), y = biomass_Mg)) +
+  
+  geom_boxplot(outlier.shape = NA, fill = "gray95", color = "gray40") +
+  geom_jitter(aes(color = cluster_id), width = 0.2, size = 2.5, alpha = 0.8) +
+  scale_color_viridis_d(option = "plasma") +
+  
+  labs(
+    title = "Subplot Biomass Distribution Across Locations",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "Total Biomass (Mg)",
+    color = "Edge Location"
+    
+  ) +
+  theme_minimal()
+
+ggsave("plots/subplot_cluster_boxplot.png", width = 8, height = 6, dpi = 300)
+
+```
+
+```{r edge cluster averages}
+
+library(stringr)
+
+# get average biomass per subplot for each cluster
+subplot_clusters <- plot_clusters %>%
+  group_by(cluster_id, subplot) %>%
+  summarise(
+    avg_biomass_Mg = mean(biomass_Mg),
+    plot_count = n_distinct(plot_id), # Keeps track of how many plots are in each cluster
+    .groups = "drop"
+  )
+
+# plot average subplot biomass for each cluster as bar graph
+ggplot(subplot_clusters, aes(x = cluster_id, y = avg_biomass_Mg, fill = factor(subplot))) +
+  
+  geom_col(position = "dodge", color = "black", alpha = 0.85, width = 0.7) +
+  scale_fill_brewer(palette = "YlGnBu") +
+  
+  labs(
+    title = "Average Subplot Biomass Across Edge Locations",
+    x = "Edge Location",
+    y = "Average Biomass per Subplot (Mg)",
+    fill = "Subplot"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+ggsave("plots/subplot_cluster_avg_bar.png", width = 8, height = 6, dpi = 300)
+
+```
+```{r aspect comparison}
+
+# load plot metadata
+plot_metadata <- read_csv("plot_metadata.csv")
+
+# merge aspect data with subplot biomass data
+biomass_by_aspect <- subplot_summary %>%
+  left_join(plot_metadata, by = "plot_id") %>%
+  mutate(
+    aspect_group = case_when(
+      aspect == "N"  ~ "North",
+      aspect %in% c("S", "SW") ~ "South",
+      TRUE ~ NA_character_
+    )
+  )
+
+# plot boxplots of biomass per subplot by aspect
+ggplot(biomass_by_aspect, aes(x = factor(subplot), y = biomass_Mg, fill = aspect_group)) +
+  geom_boxplot(position = position_dodge(0.8), alpha = 0.7) +
+  geom_point(aes(group = aspect_group), position = position_dodge(0.8), alpha = 0.5, size = 1.5) +
+  scale_fill_manual(values = c("North" = "skyblue", "South" = "coral")) +
+  
+  labs(
+    title = "Biomass Distribution Across Subplots by Aspect",
+    x = "Subplot Position (1 = Edge, 3 = Interior)",
+    y = "Total Biomass (Mg)",
+    fill = "Aspect"
+  ) +
+  theme_minimal()
+
+ggsave("plots/subplot_aspect_boxplot.png", width = 8, height = 6, dpi = 300)
+
+```
+
+
+
+## ForestGeo Comparison
+
+```{r load and clean forestGEO data}
+
+# download forestGEO data
+stemsHFarchives2014 <- read.csv("https://harvardforest.fas.harvard.edu/data/p25/hf253/hf253-05-stems-2014.csv") 
+stemsHFarchives2019 <- read.csv("https://harvardforest.fas.harvard.edu/data/p25/hf253/hf253-06-stems-2019.csv") 
+
+# get GESP codes for each species name
+spcw <- read.csv("https://harvardforest.fas.harvard.edu/data/p25/hf253/hf253-02-species-codes.csv") %>% 
+  dplyr::select(sp,genus,species) %>% 
+  mutate(gesp= toupper(
+    paste0(
+      substr(genus,1,2),
+      substr(species,1,2)
+    )
+  ))
+
+# load species crosswalk file
+spCoef <- read_csv("equations.csv")
+
+
+# clean and match forestGEO data
+
+# select needed columns
+cols <- c("stem.tag","sp","quadrat","census.id","dbh","status","codes")
+
+# fill in missing census.id for 2019 data
+stems14 <- stemsHFarchives2014 %>% 
+  select(all_of(cols))
+stems19 <- stemsHFarchives2019 %>% 
+  select(all_of(cols)) %>% 
+  # fill in NA census.id with 2
+  replace_na(list(census.id=2))
+
+# combine datasets and join on latin name column
+forestgeo_stems <- stems14 %>% 
+  bind_rows(stems19) %>%
+  left_join(spcw)
+
+# fill in missing quadrat data
+forestgeo_stems <- forestgeo_stems %>% 
+  group_by(stem.tag) %>% 
+  #sort stem.tag by census.id so that the first instance of the group should have a quadrat id
+  arrange(stem.tag,census.id) %>% 
+  #fill in the missing quadrat data for each stem.tag group
+  mutate(quadrat=coalesce(quadrat,first(quadrat)),
+         #how many surveys where the stem was measured
+         n=length(stem.tag)) 
+
+# get biomass by joining with spCoef
+forestgeo_stems <- forestgeo_stems %>% 
+  ungroup() %>% 
+  left_join(spCoef) %>% 
+  mutate(AGBkg=ifelse(formulaType==1,b1*(dbh^b2),
+                      ifelse(formulaType==3,exp(b1+b2*log(dbh)),  #this is also the genJen formula #we updated genJen table to be formula =3
+                             ifelse(formulaType==5,  (b1*(dbh^b2))/1000   ,
+                                    ifelse(formulaType==7,exp((b1 + b2*log(dbh))/1000)     , NA )))))  %>% 
+  mutate(AGBMg=round(AGBkg/1000,3)) 
+
+```
+
+```{r plot biomass density histograms}
+
+# calculate biomass density for each edge plot
+plot_summary <- edge_plot_data %>%
+  group_by(plot_id) %>% 
+  summarise(biomass_Mg = sum(AGB_Mg, na.rm = TRUE)) %>%
+  mutate(
+    biomass_per_ha = biomass_Mg * (10000 / 300)
+  )
+
+# plot histogram of biomass density per edge plot
+ggplot(plot_summary, aes(x = biomass_per_ha)) +
+  geom_histogram(bins = 50, fill = "steelblue2", color = "white", alpha = 0.8) +
+  xlim(0, 600) + 
+  labs(
+    title = "Total Biomass Density Per Edge Plot",
+    x = "Biomass per Hectare (Mg/ha)",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+ggsave("plots/biomass_density_plots.png", width = 8, height = 6, dpi = 300)
+
+# calculate biomass density for each ForestGEO quadrat in 2019
+quadrat_summary <- forestgeo_stems %>%
+  filter(census.id == 2) %>% # only count 2019 entries
+  filter(dbh >= 10) %>% # only count trees over 10 cm DBH
+  group_by(quadrat) %>% 
+  summarise(biomass_Mg = sum(AGBMg, na.rm = TRUE)) %>%
+  mutate(
+    biomass_per_ha = biomass_Mg * (10000 / 400),
+  )
+
+# plot histogram of biomass per ForestGEO quadrat
+ggplot(quadrat_summary, aes(x = biomass_per_ha)) +
+  geom_histogram(bins = 50, fill = "steelblue2", color = "white", alpha = 0.8) +
+  xlim(0, 600) + # ignore 2 entries above 600 Mg/ha
+  labs(
+    title = "Total Biomass Density Per ForestGEO Quadrat in 2019",
+    x = "Biomass per Hectare (Mg/ha)",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave("plots/biomass_density_quadrats.png", width = 8, height = 6, dpi = 300)
+
+  
+```
+
+```{r forestGEO boxplot comparisons}
+
+# get biomass density and label locations for subplot data
+subplot_summary <- edge_plot_data %>%
+  group_by(plot_id, subplot) %>%
+  summarise(biomass_Mg = sum(AGB_Mg, na.rm = TRUE)) %>%
+  mutate(
+    biomass_per_ha = biomass_Mg * (10000 / 100), # Multiplier is now 100 for a 100m² subplot
+    position = case_when(
+      subplot == 1 ~ "1 (Edge)",
+      subplot == 2 ~ "2 (Transition)",
+      subplot == 3 ~ "3 (Interior)"
+    )
+  )
+
+# label location for quadrat data
+quadrat_summary <- quadrat_summary %>%
+  mutate(position = "4 (Deep Interior)")
+
+# bind all edge subplot and ForestGEO quadrat data
+edge_forestgeo_bind <- bind_rows(subplot_summary, quadrat_summary)
+
+# plot boxplot for all subplot and interior locations
+ggplot(edge_forestgeo_bind, aes(x = position, y = biomass_per_ha, fill = position)) +
+
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, color = "gray30") +
+  geom_jitter(data = filter(edge_forestgeo_bind, position != "4 (Deep Interior)"), 
+              width = 0.2, alpha = 0.5, size = 1.5, color = "black") +
+  scale_fill_brewer(palette = "YlGn") +
+  ylim(0, 600) + 
+  
+  labs(
+    title = "Biomass Density from Edge to Deep Interior",
+    x = "Location",
+    y = "Biomass Density (Mg/ha)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold")
+  )
+
+ggsave("plots/subplots_quadrats_boxplot.png", width = 8, height = 6, dpi = 300)
+
+
+
+# label plot and quadrat AGB density data
+plots_AGB_density <- plot_summary %>%
+  mutate(
+      location = "Edge Plots"
+    ) %>%
+  select(location, biomass_per_ha)
+    
+quadrats_AGB_density <- quadrat_summary %>%
+  mutate(
+      location = "ForestGEO Quadrats"
+    ) %>%
+  select(location, biomass_per_ha)
+
+# combine edge plot and quadrat AGB density data
+AGB_density_bind <- bind_rows(plots_AGB_density, quadrats_AGB_density)  
+
+# plot 2 boxes comparing plot vs. quadrat biomass density
+ggplot(AGB_density_bind, aes(x = location, y = biomass_per_ha, fill = location)) +
+
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, color = "gray30", width = 0.5) +
+  geom_jitter(data = filter(AGB_density_bind, location == "Edge Plots"), 
+              width = 0.15, alpha = 0.6, size = 2, color = "black") +
+  scale_fill_manual(values = c("Edge Plots" = "cornsilk", "ForestGEO Quadrats" = "chartreuse4")) +
+  ylim(0, 600) + 
+  
+  labs(
+    title = "Edge vs. Interior Biomass Density",
+    x = "Location",
+    y = "Biomass Density (Mg/ha)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold", size = 12)
+  )
+
+ggsave("plots/plots_quadrats_boxplot.png", width = 8, height = 6, dpi = 300)
+
+```
+
