@@ -1,0 +1,21 @@
+plot_id,edge,aspect,adjacent,adjacent description,date,edge angle,latitude,longitude,slope ,notes
+LHNA,Lyford House North Meadow,S,P,Mown Meadow,5/29/2026,250,42° 31’ 44.748” N,72° 11’ 10.002” W,flat,Rope Plot R6
+LHNB,Lyford House North Meadow,S,P,Fenced Garden,6/1/2026,272,42° 31’ 44.838” N,72° 11’ 11.568” W,flat,35m west of LHNA
+LHGA,Lyford House Garage,N,P,Mown Meadow,6/1/2026,252,42° 31’ 43.752” N,72° 11’ 11.568” W,slight slope down toward interior,Small stream at 30m in
+GCNA,Golf Course North Pasture,S,P,Overgrown Meadow,6/2/2026,254,42° 31’ 31.092” N,72° 10’ 48.36” W,flat,Dense shrubs and small trees to the south
+GCNB,Golf Course North Pasture,S,P,Overgrown Meadow,6/2/2026,82,42° 31’ 31.272” N,72° 10’ 44.73” W,flat,35m east of GCNA
+GCNC,Golf Course North Pasture,S,P,Overgrown Meadow,6/2/2026,90,42° 31’ 31.242” N,72° 10’ 46.548” W,flat,35m east of GCNB
+GCEA,Golf Course East Pasture,S,P,Grazed Meadow,6/2/2026,290,42° 31’ 27.192” N,72° 10’ 39.762” W,Somewhat steep down toward interior,Edge is 1.8m outside fence; entire plot is piled with rocks ~1m across
+GCPA,Golf Course Pond,N,P,Mown Meadow,6/3/2026,25,42° 31’ 22.41” N,72° 10’ 38.172” W,slight slope down toward interior,"Stone walls on either side of plot, dense small trees at edge"
+GCPB,Golf Course Pond,N,P,Mown Meadow,6/3/2026,36,42° 31’ 22.038” N,72° 10’ 39.18” W,slight slope down toward interior,"Large, rotted stumps (50cm+) scattered throughout plot"
+GCPC,Golf Course Pond,N,P,Mown Meadow,6/5/2026,224,42° 31’ 21.198” N,72° 10’ 39.9” W,slight slope down toward interior,"Electrical & well at edge, pond to west. Thich bittersweet and honeysuckle at edge; thick brush in SP1 & 2"
+BRA,Barre Road,SW,I,Main Road,6/5/2026,313,42° 28’ 47.76” N,72° 10’ 42.372” W,flat,"12.2m from road; ditch at plot edge; shoulder mown; ferns & a few saplings, otherwise sparse underbrush"
+BRB,Barre Road,SW,I,Main Road,6/8/2026,328,42° 28’ 46.998” N,72° 10’ 41.772” W,flat,"7m from road; dense brush right at edge, otherwise sparse; 4' high hump in subplot 1"
+BRC,Barre Road @ South St,S,I,Main Road,6/8/2026,303,42° 28’ 20.628” N,72° 10’ 22.512” W,slope 3m up to interior,6m from road; stream at bottom of road bed just outside plot
+BRD,Barre Road @ South St,S,I,Main Road,6/9/2026,288,42° 28’ 20.742” N,72° 10’ 21.03” W,"2m rise in SP1, slight rise to interior after that",9m from road; 4 5+ year old stumps at plot edge; ditch with running water 2m from plot edge
+BRE,Barre Road @ Quaker Dr,S,I,Main Road,6/9/2026,120,42° 28’ 16.56” N,72° 10’ 4.08” W,slight slope down toward interior,"7m from road; some old (10+ year) stumps at edge; recent (still brown) wood chips east of plot, dense ferns all through"
+BRF,Barre Road @ Quaker Dr,S,I,Main Road,6/10/2026,125,42° 28’ 16.29” N,72° 10’ 3.402” W,slight slope down toward interior,8m from road; sparse brush & dense ferns at edge; no stream / ditch at edge; recent wood chips at east edge
+BRG,Barre Road @ Quaker Dr,S,I,Main Road,6/10/2026,294,42° 28’ 15.108” N,72° 10’ 0.732” W,slight slope down toward interior,"7m from road, 1 old stump at eadge"
+WHWA,Williams Homestead West,S,P,Overgrown Meadow,6/10/2026,270,42° 27’ 34.572” N,72° 10’ 20.232” W,slight rise up toward interior,"15m west of edge of meadow; 2m30 south of stone wall; low saplings and shrubs to south; patches of ferns in SP1, 2 &3"
+WHWB,Williams Homestead West,S,P,Overgrown Meadow,6/10/2026,180,42° 27’ 35.262” N,72° 10’ 21.552” W,slight rise up toward interior,not much underbrush
+WHWC,Williams Homestead West,S,P,Overgrown Meadow,6/10/2026,270,42° 27’ 34.83” N,72° 10’ 22.602” W,slight rise up toward interior,5.6m south of stone wall; seasonal mud in SP1 center; dense fern in sp2 & 3 and east of SP1
