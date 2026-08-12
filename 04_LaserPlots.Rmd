@@ -1,0 +1,401 @@
+---
+title: "04_LaserPlots"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(allodb)
+
+for (script in list.files(path = "R", pattern = "*.[Rr]", full.names = TRUE)) {
+  source(script)
+}
+```
+
+# Datums
+
+```{r}
+species <- readxl::read_xlsx("data/raw/Edge Plot Data Sheet.xlsx", sheet = "Tree Species") |>
+  mutate(genspe= paste0(toupper(substr(GENUS, 1, 3)), toupper(substr(SPECIES, 1, 3))))
+trees <- readxl::read_xlsx("data/raw/Edge Plot Data Sheet.xlsx", sheet = "Tree Data") |>
+  left_join(species, by = join_by(gesp))
+plots <- readxl::read_xlsx("data/raw/Edge Plot Data Sheet.xlsx", sheet = "Plot Data") |>
+  mutate(
+    lat = dms_to_dd(lat),
+    lon = dms_to_dd(lon)
+  )
+harvard_forest <- terra::vect(file.path(
+  "/vsizip",
+  "data/processed",
+  "harvard_forest.shp.zip",
+  "harvard_forest.shp.shp"
+)) |>
+  as.data.frame(geom = "XY") |>
+  select(lon = x, lat = y) |>
+  as.list()
+```
+
+## Datums for Garmin
+
+Turn the plots into a GPX file for Garmin GPS.
+For GPX, the layer name matters: point features must be written to the waypoints layer. GPX uses WGS 84 coordinates, so EPSG:4326 is correct. The GDAL GPX driver supports point features as waypoints, lines as routes, and multilines as tracks.
+
+Preparing the waypoint attributes
+
+The most useful standard GPX fields are:
+
+name: waypoint name shown on the Garmin
+desc: description
+sym: Garmin/GPX symbol name
+ele: elevation in metres
+time: timestamp
+
+```{r, eval=FALSE}
+waypoints <- plots |>
+  select(
+    name = plot_id,
+    desc = edge,
+    time = date,
+    lon,
+    lat
+  ) |>
+  terra::vect(crs = crs("epsg:4326"))
+waypoints |>
+  terra::writeVector(
+    "EstimatedPlots.gpx",
+    filetype = "GPX",
+    layer = "waypoints"
+  )
+```
+
+# Data Validation
+
+```{r}
+# All plots must have trees
+stopifnot(
+  plots |>
+    distinct(plot_id) |>
+    anti_join(trees |> distinct(plot_id)) |>
+    summarize(n = n()) |>
+    pull(n) == 0
+)
+
+# All plots must have metadata
+stopifnot(
+  trees |>
+    distinct(plot_id) |>
+    anti_join(plots |> distinct(plot_id)) |>
+    summarize(n = n()) |>
+    pull(n) == 0
+)
+
+# All plots must have all 3 subplots represented
+# not technically true, but we want to carefully examine cases when it's
+# false
+stopifnot(
+  trees |>
+    distinct(plot_id, subplot) |>
+    group_by(plot_id) |>
+    summarize(n = n()) |>
+    ungroup() |>
+    filter(n < 3) |>
+    summarize(n = n()) |>
+    pull(n) == 0
+)
+
+# All species must have metadata
+stopifnot(
+  trees |>
+    filter(gesp != "SNAG") |>
+    distinct(genspe) |>
+    anti_join(species |> distinct(genspe)) |>
+    summarize(n = n()) |>
+    pull(n) == 0
+)
+```
+
+# Quik Viz
+
+## Stems by Species
+
+```{r}
+trees |>
+  filter(gesp != "SNAG") |>
+  group_by(gesp) |>
+  summarize(n = n()) |>
+  slice_max(n, n = 10) |>
+  ggplot(aes(fct_reorder(gesp, desc(n)), n)) +
+  geom_col() +
+  theme_bw() +
+  ggtitle("Luna's Laser Plots: Number of Trees by Species") +
+  xlab("Genus / Species") +
+  ylab("Number of Stems")
+```
+
+## Stems by Subplot
+
+```{r}
+trees |>
+  filter(gesp != "SNAG") |>
+  mutate(distance_from_edge = case_when(
+    subplot == 1 ~ "0m - 10m",
+    subplot == 2 ~ "10m - 20m",
+    subplot == 3 ~ "20m - 30m"
+  )) |>
+  group_by(plot_id, distance_from_edge) |>
+  summarize(n = n(), .groups = "drop") |>
+  ggplot(aes(distance_from_edge, n)) +
+  geom_boxplot(notch = TRUE) + 
+  theme_bw() +
+  ggtitle("Luna's Laser Plots: stems by subplot") +
+  ylab("Number of Stems >= 10cm DBH") +
+  xlab("Distance from Edge")
+```
+
+# DBH by Subplot
+
+```{r}
+trees |>
+  filter(gesp != "SNAG") |>
+  mutate(distance_from_edge = case_when(
+    subplot == 1 ~ "0m - 10m",
+    subplot == 2 ~ "10m - 20m",
+    subplot == 3 ~ "20m - 30m"
+  )) |>
+  ggplot(aes(distance_from_edge, dbh)) +
+  geom_boxplot(notch = TRUE) + 
+  theme_bw() +
+  ggtitle("Luna's Laser Plots: DBH by subplot") +
+  ylab("Diameter (cm)") +
+  xlab("Distance from Edge")
+```
+
+# Biomass
+
+## Formulae
+
+Harvard Forest code is from Danelle
+
+Allodb can fill in the few species for which Harvard Forest doesn't
+have biomass, e.g. Acer platanoides and Quercus macrocarpa.
+
+biomass_AGBMg moved to R/functions.R
+
+spCoef is:
+```{r}
+merged_genJen_HF3_20260611 <- read_csv(file.path(
+  "data/raw",
+  "merged_genJen_HF3_20260611.csv"
+)) |>
+  # There are duplicate rows; pick the first one
+  group_by(genspe) |>
+  slice_head(n = 1) |>
+  ungroup()
+```
+
+## Biomass
+
+Let's try it
+
+```{r}
+biomass <- trees |>
+  biomass_AGBMg(merged_genJen_HF3_20260611)
+```
+
+## Missing Values
+
+Did anything other than SNAGs not get biomass?
+
+```{r}
+biomass |>
+  filter(gesp != "SNAG") |>
+  filter(is.na(AGBMg)) |>
+  distinct(gesp)
+```
+
+## Outliers
+
+who is the outlier?
+
+```{r}
+biomass |>
+  group_by(plot_id, subplot) |>
+  summarize(AGBMg = sum(AGBMg, na.rm = TRUE), .groups = "drop") |>
+  mutate(AGBMg_ha = AGBMg * 10000 / 100) |> # hectare is 10000m2, we have 100m2
+  slice_max(AGBMg, n = 1)
+```
+
+## Viz
+
+```{r}
+biomass |>
+  group_by(plot_id, subplot) |>
+  summarize(AGBMg = sum(AGBMg, na.rm = TRUE), .groups = "drop") |>
+  mutate(
+    subplot = ordered(subplot),
+    AGBMg_ha = AGBMg * 10000 / 100
+  ) |>
+  left_join(plots, by = join_by(plot_id)) |>
+  ggplot(aes(subplot, AGBMg_ha)) +
+  geom_boxplot(outlier.size = 0.25, notch = TRUE) +
+  facet_wrap(c(~aspect, ~adjacent), labeller = label_both) +
+  theme_bw() +
+  ggtitle("Subplot Biomass by Aspect and Adjacency") +
+  ylab(bquote("Biomass" ~ (Mg %.% ha^-1))) +
+  xlab("Subplot")
+```
+
+
+## Biomass by Species
+
+```{r}
+biomass |>
+  filter(gesp != "SNAG") |>
+  group_by(gesp) |>
+  summarize(AGBMg = sum(AGBMg)) |>
+  slice_max(AGBMg, n = 10) |>
+  ggplot(aes(fct_reorder(gesp, desc(AGBMg)), AGBMg)) +
+  geom_col() +
+  theme_bw() +
+  ggtitle("Luna's Laser Plots: Biomass by Species") +
+  xlab("Genus / Species") +
+  ylab("Biomass (Mg)")
+```
+
+## Biomass Comparison
+
+How much does it matter whether we get the species right?
+
+### Red vs. Sugar Maple
+
+Both of these use formula form 3, which uses b1 and b2.
+
+```{r}
+biomass_function_for_species <- function(genspe) {
+  row <- merged_genJen_HF3_20260611 |>
+    filter(genspe == !!genspe)
+  b1 <- row |> pull(b1)
+  b2 <- row |> pull(b2)
+  b3 <- row |> pull(b3)
+  b4 <- row |> pull(b4)
+  
+  formulaType <- row |> pull(formulaType)
+  
+  formula <- switch(
+    as.character(formulaType),
+    "1" = function(dbh) b1 * (dbh^b2),
+    "3" = function(dbh) exp(b1 + b2 * log(dbh)),
+    "5" = function(dbh) (b1 * (dbh^b2)) / 1000,
+    "7" = exp((b1 + b2 * log(dbh)) / 1000),
+  )
+
+  return(formula)
+}
+
+red_maple <- biomass_function_for_species("ACERUB")
+sugar_maple <- biomass_function_for_species("ACESAC")
+
+ggplot() +
+  xlim(10, 50) +
+  geom_function(aes(color = "Red Maple"), fun = red_maple) +
+  geom_function(aes(color = "Sugar Maple"), fun = sugar_maple) +
+  theme_bw() +
+  scale_color_manual(
+    name = "Species",
+    values = c("Red Maple" = "red", "Sugar Maple" = "blue")
+  ) +
+  ggtitle("Biomass by DBH") +
+  xlab("DBH (cm)") +
+  ylab("Biomass (Kg)")
+
+```
+
+### Red Oak vs. Basswood
+
+```{r}
+red_oak <- biomass_function_for_species("QUERUB")
+basswood <- biomass_function_for_species("TILAME")
+
+ggplot() +
+  xlim(10, 50) +
+  geom_function(aes(color = "Red Oak"), fun = red_oak) +
+  geom_function(aes(color = "Basswood"), fun = basswood) +
+  theme_bw() +
+  scale_color_manual(
+    name = "Species",
+    values = c("Red Oak" = "red", "Basswood" = "blue")
+  ) +
+  xlab("DBH (cm)") +
+  ylab("Biomass (Kg)")
+
+```
+
+### Black Birch vs. Black Cherry
+
+```{r}
+black_birch <- biomass_function_for_species("BETLEN")
+black_cherry <- biomass_function_for_species("PRUSER")
+
+ggplot() +
+  xlim(10, 50) +
+  geom_function(aes(color = "Black Birch"), fun = black_birch) +
+  geom_function(aes(color = "Black Cherry"), fun = black_cherry) +
+  theme_bw() +
+  scale_color_manual(
+    name = "Species",
+    values = c("Black Birch" = "red", "Black Cherry" = "blue")
+  ) +
+  xlab("DBH (cm)") +
+  ylab("Biomass (Kg)")
+
+```
+
+
+# Plots
+
+## Edge Angle
+
+We're not consistent about whether we measure east-to-west or west-to-east.
+Fix it: GIS prefers that exterior use counterclockwise winding direction.
+
+So, if a plot is south facing, the edge edge should go west-to-east (<180);
+if a plot is north facing, the edge edge should go east-to-west (>180).
+
+```{r}
+magnetic_declination <- -13.5464
+
+# correct for magnetic declination
+plots$edge_angle_true <- (plots$edge_angle + magnetic_declination) %% 360
+
+# check and correct plot edge bearing
+plots <- plots |>
+  mutate(
+    long_axis_bearing = (edge_angle_true + 90) %% 360,
+    north_component   = cos(long_axis_bearing * pi / 180),
+    needs_flip = case_when(
+      aspect == "N" & north_component >= 0 ~ TRUE,   # would extend north instead of south
+      aspect == "S" & north_component <= 0 ~ TRUE,   # would extend south instead of north
+      TRUE ~ FALSE
+    ),
+    edge_angle_fixed = if_else(needs_flip,
+                              (edge_angle_true + 180) %% 360,
+                              edge_angle_true) |> round()
+  )
+
+```
+
+```{r}
+plots <- plots |>
+  mutate(edge_angle_fixed = case_when(
+    aspect == "N" & edge_angle >= 180 ~ edge_angle,
+    aspect == "N" & edge_angle < 180 ~ edge_angle + 180,
+    aspect == "S" & edge_angle >= 180 ~ edge_angle - 180,
+    aspect == "S" & edge_angle < 180 ~ edge_angle
+  ))
+```
+
+

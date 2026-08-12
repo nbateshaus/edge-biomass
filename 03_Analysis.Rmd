@@ -1,0 +1,174 @@
+---
+title: "03_Analysis"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+I want to do a statistical analysis of the influence on forest growth of the proximity to non-forest landcover. I have surveyed 10 forest edges. Along each edge, I established a 10 meter wide plot every 30 meters, so individual edges have from one to 5 (average of 2.8) plots. Each plot consists of three 10 meter by 10 meter subplots; subplot 1 starts right at the edge and extend 10 meters into the forest; subplot 2 starts at the inner edge of subplot 1 and extends 10 meters further into the forest, and subplot three extends from the inner edge of subplot 2 further into the forest interior. My question is this: when doing statistical analysis of the influence of edge adjacency, how do I account for the fact that subplots in the same plot are spatially correlated, and plots in the same edge are spatially correlated?
+
+## Accounting for Hierarchical Spatial Correlation in Forest Edge Analysis
+
+Your design has a classic **nested / multilevel structure** with two distinct sources of non-independence that need to be handled at different levels:
+
+| Level | Unit | N | Correlation type |
+|---|---|---|---|
+| 1 (top) | Edge | 10 | Plots within edge share edge conditions |
+| 2 | Plot within edge | ~28 | Subplots within plot are spatially adjacent |
+| 3 (bottom) | Subplot within plot | 84 | Distance-from-edge gradient (your key predictor) |
+
+---
+
+## Recommended Primary Approach: Nested Linear Mixed Model
+
+The standard solution is a **linear mixed model (LMM) with nested random intercepts**. In `lme4` notation:
+
+```r
+library(lme4)
+
+model <- lmer(
+  growth ~ distance + [edge_covariates] + [plot_covariates] +
+    (1 | edge / plot),    # shorthand for (1|edge) + (1|edge:plot)
+  data = dat,
+  REML = TRUE
+)
+```
+
+### What each component does
+
+- **`distance`** (fixed effect): your key predictor—subplot center distance from edge (e.g., 5 m, 15 m, 25 m as continuous, or as an ordered factor). Estimated from within-plot subplot-to-subplot variation after conditioning on plot and edge random effects.
+- **`(1 | edge)`**: random intercept for edge. Absorbs edge-to-edge heterogeneity (different non-forest landcover types, regional conditions, edge orientation) and enforces that plots on the same edge are correlated.
+- **`(1 | edge:plot)`** (the inner term of `edge/plot`): random intercept for plot-within-edge. Absorbs plot-level heterogeneity and enforces that the three subplots in the same plot are correlated. This is the dominant source of within-plot autocorrelation.
+
+This model is the **minimum adequate structure**—you should not drop either random intercept without testing.
+
+---
+
+## The Distance Effect Encoding
+
+How you code `distance` matters:
+
+- **Continuous** (5 m, 15 m, 25 m): assumes a linear gradient—parsimonious, but test this assumption.
+- **Polynomial or log**: `poly(distance, 2)` or `log(distance)` if you expect a curved gradient (likely for edge effects).
+- **Factor**: `factor(subplot_position)` (1, 2, 3) if you want unconstrained estimates at each distance; costs 2 df but imposes no shape assumption.
+- **Orthogonal polynomial contrasts** on the ordered factor: a good compromise—lets you test linear + quadratic components explicitly.
+
+Since edge effects typically decay nonlinearly, at minimum test `log(distance)` or a quadratic.
+
+---
+
+## Going Further: Residual Spatial Autocorrelation
+
+The nested random intercepts handle the *grouping* structure, but they do not model the **ordered gradient** within plots or the **spatial proximity** of plots along an edge. If residual autocorrelation remains, use `nlme::lme()` instead, which allows explicit correlation structures:
+
+### AR(1) within plots (subplot transect ordering)
+
+```r
+library(nlme)
+
+model_ar1 <- lme(
+  growth ~ distance + [covariates],
+  random = ~ 1 | edge / plot,
+  correlation = corAR1(form = ~ subplot_order | edge / plot),
+  data = dat,
+  method = "REML"
+)
+```
+This adds an AR(1) decay in correlation between adjacent subplots (subplot 1<->2 more correlated than 1<->3). With only 3 subplots per plot this is difficult to estimate reliably, but it's the principled choice if you have theoretical reason to expect residual gradient effects.
+
+### Spatial exponential decay among plots within edges
+
+```r
+model_exp <- lme(
+  growth ~ distance + [covariates],
+  random = ~ 1 | edge / plot,
+  correlation = corExp(form = ~ along_edge_coord | edge,
+                       nugget = TRUE),
+  data = dat,
+  method = "REML"
+)
+```
+This models the declining correlation between plots as their along-edge distance increases. With only 1–5 plots per edge and 10 edges this is *very* data-hungry—treat it as exploratory.
+
+---
+
+## Diagnosing Residual Autocorrelation
+
+After fitting the nested random-intercept model, check empirically:
+
+```r
+# 1. Variogram of residuals — look for spatial structure
+library(gstat)
+library(sf)
+resid_df <- dat %>%
+  mutate(.resid = residuals(model)) %>%
+  st_as_sf(coords = c("x", "y"), crs = your_crs)
+
+vgm_emp <- variogram(.resid ~ 1, data = resid_df)
+plot(vgm_emp)
+
+# 2. ACF within plots — check for within-plot serial correlation
+library(nlme)
+ACF(as.lme_object, form = ~ 1 | edge / plot)  # requires nlme fit
+```
+
+If the variogram is flat (pure nugget), the nested random intercepts are sufficient. If it shows a rising sill, add the spatial correlation structure.
+
+---
+
+## Critical Caveat: Statistical Power at the Edge Level
+
+With only **10 edges**, the top-level random effect is estimated from 10 units. Practically, this means:
+
+- **Edge-level predictors** (e.g., type of adjacent non-forest cover: agriculture vs. road vs. development) will have very limited power—your effective *n* for testing those is 10.
+- **Distance effects** are estimated from within-plot variation across ~84 subplots, so power is reasonable for that.
+- **Plot-level predictors** are estimated from ~28 plots, modestly powered.
+
+You should account for this when interpreting significance. Consider treating edge-level predictors as exploratory and being conservative with inferential claims about them. If all 10 edges have the same adjacent landcover type, then landcover type is effectively a constant and can't be tested.
+
+---
+
+## Summary Decision Tree
+
+```
+Start: nested LMM with (1 | edge/plot)
+         |
+         |- Check variogram of residuals
+         |     Flat -> stop here (random intercepts sufficient)
+         |     Rising -> add corExp() or corAR1()
+         |
+         |- Test distance functional form
+         |     Linear, log, quadratic, or factor?
+         |     Use AIC/BIC on fixed effects (fit with ML not REML)
+         |
+         |- Test random slopes?
+               (1 + distance | edge/plot) — only if theoretically
+               motivated; with 10 edges, often not estimable
+```
+
+---
+
+## Minimal R Template
+
+```r
+library(lme4)
+library(lmerTest)   # for p-values via Satterthwaite df
+library(tidyverse)
+
+# Encode subplot center distance
+dat <- dat %>%
+  mutate(dist_m = case_when(
+    subplot == 1 ~ 5,
+    subplot == 2 ~ 15,
+    subplot == 3 ~ 25
+  ))
+
+# Primary model
+m0 <- lmer(growth ~ log(dist_m) + (1 | edge / plot),
+           data = dat, REML = TRUE)
+
+summary(m0)
+performance::icc(m0)   # proportion of variance at each level
+```
+
+The `ICC` from `performance::icc()` will tell you how much variance is attributable to edge vs. plot vs. subplot levels—useful for understanding the dominant scale of heterogeneity in your data.

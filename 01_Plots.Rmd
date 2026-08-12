@@ -43,6 +43,39 @@ ma_towns <- terra::vect(file.path(
 ))
 ```
 
+## ForestGEO
+
+Data manually transcribed from https://forestgeo.si.edu/sites/north-america
+
+```{r}
+forestgeo_sites <- tribble(
+  ~name, ~lat, ~lon,
+  "Andrews", 46.26, -122.18,
+  "Grand Teton", 43.7181, -110.7578,
+  "Harvard Forest", 42.5388, -72.1755,
+  "Ichauway", 21.269, -84.478,
+  "Indian Cave", 40.247, -95.537,
+  "Itasca State Park (ISP)", 47.2397, -95.2075,
+  "Lilly Dickey Woods", 39.2359, -86.2181,
+  "Michigan Big Woods", 42.4667, -84,
+  "Niobara", 42.78, -100.021,
+  "Ordway Swisher", 29.69101, -81.993,
+  "Paint Rock", 34.772, -86.306,
+  "Smithsonian Conservation Biology Institute", 38.8935, -78.1454,
+  "Smithsonian Environmental Research Center", 38.8891, -76.5594,
+  "Trelease Woods", 40.1297, -88.1437,
+  "Tyson Research Center", 38.5178, -90.5575,
+  "UNDERC (University of Notre Dame Environmental Research Center)", 46.233955, -89.535041,
+  "University of California, Santa Cruz Forest Ecology Research Site (UCSC-FERP)", 37.0124, -122.075,
+  "University of Maryland, Baltimore County (UMBC)", 39.2549, -76.7081,
+  "Utah Forest Dynamics Plot (UFDP)", 37.6615, -112.8525,
+  "Wabikon", 45.5546, -88.7945,
+  "Wind River (WFDP)", 45.8197, -121.9558,
+  "Yosemite", 37.7662, -119.819
+) |>
+  terra::vect()
+```
+
 ## NEON AOP HARV
 
 NEON flies over Harvard Forest, and much more.
@@ -204,6 +237,122 @@ ggplot() +
   coord_sf(crs = crs("epsg:4326"), xlim = detail_xlim, ylim = detail_ylim) +
   ggtitle("Detail Area") +
   plot_layout(guides = "collect")
+```
+
+## All R9 NEON AOP
+
+Ultimately, we're interested in all the NEON AOPs in USFS Region 9
+(Northeast). Where / how many are there?
+
+```{r}
+neon_aops <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw",
+  "NEON_AOP_flightBoxes_0.zip",
+  "AOP_flightBoxes",
+  "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(
+#    siteType == "Core",
+    sampleType == "Terrestrial",
+    priority == 1
+  )
+# 21 of those
+
+fsr9_regions <- tibble(region = c(
+  "minnesota",
+  "iowa",
+  "missouri",
+  "wisconsin",
+  "illinois",
+  "michigan",
+  "indiana",
+  "ohio",
+  "west virginia",
+  "pennsylvania",
+  "new york",
+  "vermont",
+  "maine",
+  "new hampshire",
+  "massachusetts",
+  "rhode island",
+  "connecticut",
+  "new jersey",
+  "delaware",
+  "maryland"
+))
+fsr9_regions$fsr9 = "r9"
+fsr9_states_map <- map_data("state") |>
+  left_join(fsr9_regions) |>
+  mutate(fsr9 = coalesce(fsr9, "other"))
+
+fsr9_states_vect <- fsr9_states_map |>
+  filter(fsr9 == "r9") |>
+  sf::st_as_sf(coords = c("long", "lat"), crs = "epsg:4326") |>
+  group_by(group) |>
+  summarize(geometry = sf::st_combine(geometry)) |>
+  sf::st_cast("POLYGON") |>
+  terra::vect()
+```
+
+```{r}
+fsr9_xlim <- c(-100, -65)
+fsr9_ylim <- c(25, 50)
+
+fsr9_countries_map <- map_data("world", c("canada", "mexico"))
+
+ggplot() +
+  geom_polygon(
+    data = fsr9_countries_map,
+    mapping = aes(long, lat, group = group),
+    color = "black",
+    fill = "white",
+    show.legend = FALSE
+  ) +
+  geom_polygon(
+    data = fsr9_states_map,
+    mapping = aes(long, lat, group = group, fill = fsr9),
+    color = "black",
+    show.legend = FALSE
+  ) +
+  geom_spatvector(
+    data = forestgeo_sites |>
+      terra::intersect(fsr9_states_vect),
+    shape = 19,
+    size = 6,
+    color = "black"
+  ) +
+  geom_spatvector(
+    data = forestgeo_sites |>
+      terra::intersect(fsr9_states_vect),
+    shape = 19,
+    size = 5,
+    color = "magenta"
+  ) +
+  geom_spatvector(
+    data = neon_aops |>
+      terra::centroids() |>
+      terra::intersect(fsr9_states_vect),
+    shape = 17,
+    size = 4,
+    color = "black"
+  ) +
+  geom_spatvector(
+    data = neon_aops |>
+      terra::centroids() |>
+      terra::intersect(fsr9_states_vect),
+    shape = 17,
+    size = 3,
+    color = "cyan"
+  ) +
+  coord_sf(crs = 4326, xlim = fsr9_xlim, ylim = fsr9_ylim) +
+  theme_bw() +
+#  theme(panel.background = element_rect(fill = "lightblue", color = NA)) +
+  scale_fill_manual(values = c("r9" = "forestgreen", "other" = "white")) +
+  xlab(NULL) +
+  scale_x_continuous(breaks = c()) +
+  ylab(NULL) +
+  scale_y_continuous(breaks = c())
 ```
 
 ## Map Tiles

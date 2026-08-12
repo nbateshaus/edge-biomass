@@ -37,6 +37,18 @@ ggplot() +
   plot_layout(guides = "collect")
 ```
 
+```{r}
+ggplot() +
+  geom_spatraster_rgb(data = basemap) +
+  geom_spatvector(data = qsq) +
+  coord_sf(
+    crs = crs("epsg:4326"),
+    xlim = c(-72.20, -72.15),
+    ylim = c(42.50, 42.55)
+  )
+
+```
+
 # Simplified Landcover
 
 
