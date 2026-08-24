@@ -9,6 +9,7 @@ output: html_document
 library(tidyverse)
 library(terra)
 library(tidyterra)
+library(ggpmisc) # for stat_poly_eq
 library(sf) # for polygon manipulation
 library(allodb)
 
@@ -515,3 +516,205 @@ fg_chm_by_subquad |>
   xlab("Canopy Height (m)") +
   labs(fill = "Plots")
 ```
+
+
+```{r}
+fg_chm_by_subquad |>
+  as.data.frame() |>
+  mutate(plots = "ForestGEO") |>
+  select(plots, canopy_height) |>
+  union_all(
+    lp_chm_by_subplot |>
+      as.data.frame() |>
+      mutate(plots = "Edge") |>
+      select(plots, canopy_height)
+  ) |>
+  ggplot(aes(canopy_height, fill = plots)) +
+  geom_histogram(binwidth = 1, position = "dodge") +
+  theme_bw() +
+  coord_cartesian(xlim = c(28, 33), ylim = c(0, 8)) +
+#  scale_fill_viridis_d() +
+  ggtitle("Canopy Height Comparison") +
+  ylab("Count") +
+  xlab("Canopy Height (m)") +
+  labs(fill = "Plots")
+```
+
+## Biomass
+
+```{r}
+fg_biomass_by_subquad |>
+  mutate(series = "ForestGEO") |>
+  select(series, AGBMg) |>
+  union_all(
+    lp_biomass_by_subplot |>
+      mutate(series = "Edge") |>
+      select(series, AGBMg)
+  ) |>
+  ggplot(aes(AGBMg, y = after_stat(density), fill = series)) +
+  geom_histogram(binwidth = 1, position = "dodge") +
+  theme_bw() +
+#  scale_fill_viridis_d() +
+  ggtitle("Biomass Comparison") +
+  ylab("Density") +
+  xlab("Biomass (Mg)") +
+  labs(fill = "Plots")
+```
+
+# Biomass / Canopy Height Regression
+
+## ForestGEO
+
+```{r}
+fg_chm_vs_biomass <- fg_chm_by_subquad |>
+  as.data.frame() |>
+  mutate(
+    subquad = as.character(subquad),
+    plots = "ForestGEO",
+    subplots = "ForestGEO"
+  ) |>
+  left_join(fg_row_col, by = join_by(quadrat, subquad)) |>
+  left_join(fg_biomass_by_subquad, by = join_by(row, col)) |>
+  select(canopy_height, AGBMg, plots) |>
+  drop_na()
+```
+
+```{r}
+fg_fit <- fg_chm_vs_biomass |>
+  lm(log(AGBMg) ~ canopy_height, data = _)
+fg_b0 <- coef(fg_fit)[1]
+fg_b1 <- coef(fg_fit)[2]
+fg_r2 <- summary(fg_fit)$r.squared
+fg_pval <- summary(fg_fit)$coefficients["canopy_height", "Pr(>|t|)"]
+
+fg_eq_label <- sprintf(
+  "y == e^{%.3f + %.3f * x}~~R^2 == %.3f~~p == %.3f",
+  fg_b0, fg_b1, fg_r2, fg_pval
+)
+
+fg_chm_vs_biomass |>
+  ggplot(aes(canopy_height, AGBMg)) +
+  geom_point(size = 0.5, alpha = 0.5, color = "blue") +
+  geom_function(
+    fun = \(x) exp(fg_b0 + fg_b1 * x),
+    color = "blue",
+    linetype = "dashed"
+  ) +
+  annotate(
+    "text",
+    x = 0, y = Inf,
+    hjust = 0, vjust = 3.5, 
+    label = fg_eq_label,
+    parse = TRUE,
+    size = 5,
+    color = "blue"
+  ) +
+  theme_bw() +
+  ggtitle("Biomass vs. Canopy Height in 10m x 10m ForestGEO Subquads") +
+  labs(
+    x = "Canopy height (m)",
+    y = "AGB (Mg)"
+  )
+```
+
+## Edge
+
+```{r}
+lp_chm_vs_biomass <- lp_chm_by_subplot |>
+  as.data.frame() |>
+  select(plot_id, subplot = subplot_id, canopy_height) |>
+  left_join(lp_biomass_by_subplot, by = join_by(plot_id, subplot)) |>
+  mutate(
+    plots = "Edge",
+    subplots = paste0("Edge SP", subplot)
+  ) |>
+  select(canopy_height, AGBMg, plots)
+```
+
+```{r}
+lp_fit <- lp_chm_vs_biomass |>
+  lm(log(AGBMg) ~ canopy_height, data = _)
+lp_b0 <- coef(lp_fit)[1]
+lp_b1 <- coef(lp_fit)[2]
+lp_r2 <- summary(lp_fit)$r.squared
+lp_pval <- summary(lp_fit)$coefficients["canopy_height", "Pr(>|t|)"]
+
+lp_eq_label <- sprintf(
+  "y == e^{%.3f + %.3f * x}~~R^2 == %.3f~~p == %f",
+  lp_b0, lp_b1, lp_r2, lp_pval
+)
+
+lp_chm_vs_biomass |>
+  ggplot(aes(canopy_height, AGBMg)) +
+  geom_point(size = 0.5, alpha = 0.5, color = "red") +
+  geom_function(
+    fun = \(x) exp(lp_b0 + lp_b1 * x),
+    color = "red",
+    linetype = "dashed"
+  ) +
+  annotate(
+    "text",
+    x = 0, y = Inf,
+    hjust = 0, vjust = 1.5, 
+    label = lp_eq_label,
+    parse = TRUE,
+    size = 5,
+    color = "red"
+  ) +
+  theme_bw() +
+  ggtitle("Biomass vs. Canopy Height in 10m x 10m Edge Subplots") +
+  labs(
+    x = "Canopy height (m)",
+    y = "AGB (Mg)"
+  )
+```
+
+
+## Both
+
+```{r}
+annot_df <- tibble(
+  plots = c("ForestGEO", "Edge"),
+  x     = c(0, 0),
+  y     = c(Inf, Inf),
+  hjust = c(0, 0),
+  vjust = c(1.5, 3.5),      # stagger so labels don't overlap
+  label = c(
+    sprintf("y == e^{%.3f + %.3f * x}~~R^2 == %.3f", fg_b0, fg_b1, fg_r2),
+    sprintf("y == e^{%.3f + %.3f * x}~~R^2 == %.3f", lp_b0,  lp_b1,  lp_r2)
+  )
+)
+
+lp_chm_vs_biomass |>
+  union_all(fg_chm_vs_biomass) |>
+  ggplot(aes(canopy_height, AGBMg, color = plots)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_function(
+    data = data.frame(plots = "Edge"),
+    aes(color = plots),
+    fun = \(x) exp(lp_b0 + lp_b1 * x),
+    linetype = "dashed",
+    inherit.aes = FALSE
+  ) +
+  geom_function(
+    data = data.frame(plots = "ForestGEO"),
+    aes(color = plots),
+    fun = \(x) exp(fg_b0 + fg_b1 * x),
+    linetype = "dashed",
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data  = annot_df,
+    aes(x = x, y = y, label = label, color = plots, hjust = hjust, vjust = vjust),
+    parse       = TRUE,
+    size        = 5,
+    show.legend = FALSE    # don't add "Aa" to the legend
+  ) +
+  theme_bw() +
+  ggtitle("Biomass vs. Canopy Height in 10m x 10m plots") +
+  labs(
+    x = "Canopy height (m)",
+    y = "AGB (Mg)"
+  )
+```
+
