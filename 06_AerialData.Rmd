@@ -1,0 +1,191 @@
+---
+title: "06_AerialData"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(sf)
+library(sfheaders)
+library(ggspatial)
+library(patchwork)
+library(gdalUtilities) # ogr2ogr
+library(maptiles) # for basemap
+```
+
+# Layers
+
+## States
+
+```{r state_outlines}
+state_outlines <- map_data("state", region = c(
+  "Minnesota", "Iowa", "Wisconsin", "Missouri", "Illinois", "Indiana",
+  "Michigan", "Ohio", "Kentucky", "Virginia", "West Virginia", "Maryland",
+  "Delaware", "New Jersey", "Pennsylvania", "New York", "Connecticut",
+  "Massachusetts", "Rhode Island", "New Hampshire", "Vermont", "Maine"
+  )) |>
+  sfheaders::sf_polygon(
+    obj = _,
+    x = "long",
+    y = "lat",
+    polygon_id = "group"
+  ) |>
+  `st_crs<-`(sf::st_crs("epsg:4326")) |>
+  terra::vect()
+```
+
+## Aviris Flight Paths
+
+```{r}
+aviris_c <- terra::vect("data/raw/aviris/AVIRIS-C_flights.geojson")
+aviris_ng <- terra::vect("data/raw/aviris/AVIRIS-NG_flights.geojson")
+aviris_3 <- terra::vect("data/raw/aviris/aviris_3_flight_paths.geojson")
+```
+
+
+## ForestGEO
+
+Data manually transcribed from https://forestgeo.si.edu/sites/north-america
+
+```{r}
+forestgeo_sites <- tribble(
+  ~name, ~lat, ~lon,
+  "Andrews", 46.26, -122.18,
+  "Grand Teton", 43.7181, -110.7578,
+  "Harvard Forest", 42.5388, -72.1755,
+  "Ichauway", 21.269, -84.478,
+  "Indian Cave", 40.247, -95.537,
+  "Itasca State Park (ISP)", 47.2397, -95.2075,
+  "Lilly Dickey Woods", 39.2359, -86.2181,
+  "Michigan Big Woods", 42.4667, -84,
+  "Niobara", 42.78, -100.021,
+  "Ordway Swisher", 29.69101, -81.993,
+  "Paint Rock", 34.772, -86.306,
+  "Smithsonian Conservation Biology Institute", 38.8935, -78.1454,
+  "Smithsonian Environmental Research Center", 38.8891, -76.5594,
+  "Trelease Woods", 40.1297, -88.1437,
+  "Tyson Research Center", 38.5178, -90.5575,
+  "UNDERC (University of Notre Dame Environmental Research Center)", 46.233955, -89.535041,
+  "University of California, Santa Cruz Forest Ecology Research Site (UCSC-FERP)", 37.0124, -122.075,
+  "University of Maryland, Baltimore County (UMBC)", 39.2549, -76.7081,
+  "Utah Forest Dynamics Plot (UFDP)", 37.6615, -112.8525,
+  "Wabikon", 45.5546, -88.7945,
+  "Wind River (WFDP)", 45.8197, -121.9558,
+  "Yosemite", 37.7662, -119.819
+) |>
+  terra::vect()
+```
+
+
+## Did we find them?
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = state_outlines,
+    color = "black",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = forestgeo_sites |>
+      terra::project(state_outlines) |>
+      terra::intersect(state_outlines),
+    shape = 19,
+    size = 4,
+    color = "black"
+  ) +
+  geom_spatvector(
+    data = forestgeo_sites |>
+      terra::project(state_outlines) |>
+      terra::intersect(state_outlines),
+    shape = 19,
+    size = 3,
+    color = "magenta"
+  ) +
+  geom_spatvector(
+    data = aviris_c |>
+      terra::project(state_outlines) |>
+      terra::intersect(state_outlines),
+    aes(color = "AVIRIS-C", fill = "AVIRIS-C")
+  ) +
+  geom_spatvector(
+    data = aviris_ng |>
+      terra::project(state_outlines) |>
+      terra::intersect(state_outlines),
+    aes(color = "AVIRIS-NG", fill = "AVIRIS-NG")
+  ) +
+  geom_spatvector(
+    data = aviris_3 |>
+      terra::project(state_outlines) |>
+      terra::intersect(state_outlines),
+    aes(color = "AVIRIS-3", fill = "AVIRIS-3")
+  ) +
+  coord_sf(
+    crs = crs(state_outlines),
+    xlim = c(ext(state_outlines)$xmin, ext(state_outlines)$xmax),
+    ylim = c(ext(state_outlines)$ymin, ext(state_outlines)$ymax)
+  ) +
+  theme_bw() +
+  scale_color_manual(
+    name = "Instrument",
+    values = c(
+      "AVIRIS-C" = "orange",
+      "AVIRIS-NG" = "blue",
+      "AVIRIS-3" = "green",
+      "AVIRIS-5" = "red"
+    )
+  ) +
+  scale_fill_manual(
+    name = "Instrument",
+    values = c(
+      "AVIRIS-C" = "orange",
+      "AVIRIS-NG" = "blue",
+      "AVIRIS-3" = "green",
+      "AVIRIS-5" = "red"
+    )
+  ) +
+  ggtitle("AVIRIS Flights") +
+  theme(axis.text.x = element_text(angle = -30, hjust = 0, vjust = 1)) +
+  annotation_scale(
+    location = "br",
+    pad_x = unit(0.45, "cm"),
+    pad_y = unit(0.1, "cm")
+  ) +
+  annotation_north_arrow(
+    location = "tr",
+    width = unit(0.75, "cm"),
+    pad_x = unit(-0.15, "cm"),
+    pad_y = unit(0.25, "cm"),
+    style = north_arrow_minimal
+  )
+
+```
+
+```{r}
+tibble(
+  aviris_c = aviris_c |>
+    terra::project(state_outlines) |>
+    terra::intersect(state_outlines) |>
+    as.data.frame() |>
+    distinct(flt_ID) |>
+    nrow(),
+  aviris_ng = aviris_ng |>
+    terra::project(state_outlines) |>
+    terra::intersect(state_outlines) |>
+    as.data.frame() |>
+    distinct(flt_ID) |>
+    nrow(),
+  aviris_3 = aviris_3 |>
+    terra::project(state_outlines) |>
+    terra::intersect(state_outlines) |>
+    as.data.frame() |>
+    distinct(group) |>
+    nrow()
+) |>
+  t()
+```
+
