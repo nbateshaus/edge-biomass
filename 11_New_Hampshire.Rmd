@@ -1,0 +1,70 @@
+---
+title: "11_New_Hampshire"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(sf)
+library(sfheaders)
+library(ggspatial)
+library(patchwork)
+library(gdalUtilities) # ogr2ogr
+library(maptiles) # for basemap
+
+for (script in list.files(path = "R", pattern = "*.[Rr]", full.names = TRUE)) {
+  source(script)
+}
+```
+
+# Datums
+
+## NEON BART
+
+
+```{r neon_aop_bart}
+neon_aop_bart <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(siteID == "BART")
+```
+
+## Tax Parcels
+
+```{r nh_tax_parcels}
+nh_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/NH",
+  "NH_Parcel_Mosaic_-_Polygons.zip",
+  "NH_Parcel_Mosaic_-_Polygons.shp"
+)) |>
+  terra::project(neon_aop_bart) |>
+  terra::intersect(neon_aop_bart)
+```
+
+# Write
+
+Write out a small file of tax parcels for use in QGIS
+
+```{r write nh_tax_parcels}
+nh_tax_parcels |>
+  terra::writeVector(file.path(
+    "data/processed",
+    "NH_Tax_parcels.shp.zip"
+  ))
+```
+
+# Notes
+
+* Ski area - Bartlett - lots of edges at a variety of elevations and forest types
+* East / West Roads - through White Mountain National Forest
+
+
