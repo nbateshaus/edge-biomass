@@ -1,0 +1,154 @@
+---
+title: "14_Maryland"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(sf)
+library(sfheaders)
+library(ggspatial)
+library(patchwork)
+library(gdalUtilities) # ogr2ogr
+library(maptiles) # for basemap
+
+for (script in list.files(path = "R", pattern = "*.[Rr]", full.names = TRUE)) {
+  source(script)
+}
+```
+
+# Datums
+
+## NEON SERC
+
+SERC - Smithsonian Environmental Research Center
+
+```{r neon_aop_scbi}
+neon_aop_serc <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(siteID == "SERC")
+
+neon_aop_serc_buffered <- neon_aop_serc |>
+  terra::buffer(1000)
+```
+
+
+## Tax Parcels
+
+Tax data at https://maryland-department-of-planning-data-hub-maryland.hub.arcgis.com/#gis-downloads
+
+Downloads are by county.
+
+SERC is in Anne Arundel county.
+
+```{r md_tax_parcels}
+md_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/MD",
+  "ANNEparcels0526.zip",
+  "ANNEPOLY.shp"
+)) |>
+  terra::project(neon_aop_serc) |>
+  terra::intersect(neon_aop_serc_buffered)
+```
+
+Because Annapolis is in the NEON AOP, there are a bazillion tiny
+tax parcels. Create a ha attribute so this can be filtered by size.
+
+```{r md_tax_parcels_1ha}
+md_tax_parcels$ha <- md_tax_parcels |>
+  terra::expanse(unit = "ha")
+```
+
+# Preview
+
+
+## State and County Outlines
+
+```{r state_outlines}
+md_outline <- map_data("state", region = "Maryland") |>
+  sfheaders::sf_polygon(
+    obj = _,
+    x = "long",
+    y = "lat",
+    polygon_id = "group"
+  ) |>
+  `st_crs<-`(sf::st_crs("epsg:4326")) |>
+  terra::vect()
+
+md_counties <- map_data("county", region = "Maryland") |>
+  sfheaders::sf_polygon(
+    obj = _,
+    x = "long",
+    y = "lat",
+    polygon_id = "group"
+  ) |>
+  `st_crs<-`(sf::st_crs("epsg:4326")) |>
+  terra::vect()
+```
+
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = md_counties,
+    color = "blue",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = md_tax_parcels,
+    color = "black",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = neon_aop_serc,
+    color = "red",
+    fill = "transparent"
+  ) +
+  coord_sf(
+    crs = crs(md_outline),
+    xlim = c(ext(neon_aop_serc)$xmin, ext(neon_aop_serc)$xmax),
+    ylim = c(ext(neon_aop_serc)$ymin, ext(neon_aop_serc)$ymax)
+  ) +
+  theme_bw() +
+  ggtitle("NEON AOPs in MD") +
+  theme(axis.text.x = element_text(angle = -30, hjust = 0, vjust = 1)) +
+  annotation_scale(
+    location = "br",
+    pad_x = unit(0.45, "cm"),
+    pad_y = unit(0.1, "cm")
+  ) +
+  annotation_north_arrow(
+    location = "tr",
+    width = unit(0.75, "cm"),
+    pad_x = unit(-0.15, "cm"),
+    pad_y = unit(0.25, "cm"),
+    style = north_arrow_minimal
+  )
+
+```
+
+
+# Write
+
+Write out a small file of tax parcels for use in QGIS
+
+```{r write md_tax_parcels}
+md_tax_parcels |>
+  terra::writeVector(file.path(
+    "data/processed",
+    "MD_Tax_parcels.shp.zip"
+  ))
+```
+
+# Notes
+

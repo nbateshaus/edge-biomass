@@ -1,0 +1,95 @@
+---
+title: "12_Virginia"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(sf)
+library(sfheaders)
+library(ggspatial)
+library(patchwork)
+library(gdalUtilities) # ogr2ogr
+library(maptiles) # for basemap
+
+for (script in list.files(path = "R", pattern = "*.[Rr]", full.names = TRUE)) {
+  source(script)
+}
+```
+
+# Datums
+
+## NEON SCBI
+
+SCBI = Smithsonian Conservation Biology Institute
+
+```{r neon_aop_scbi}
+neon_aop_scbi <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(siteID == "SCBI")
+
+neon_aop_scbi_buffered <- neon_aop_scbi |>
+  terra::buffer(1000)
+```
+
+## NEON BLAN
+
+BLAN = Blandy Experimental Farm
+
+```{r neon_aop_blan}
+neon_aop_blan <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(siteID == "BLAN")
+
+neon_aop_blan_buffered <- neon_aop_blan |>
+  terra::buffer(1000)
+
+```
+
+
+## Tax Parcels
+
+there's a Virginia GIS registry, https://vgin.vdem.virginia.gov/ , but it doesn't have parcel owners. It looks like you have to go to the towns for that.
+
+```{r va_tax_parcels}
+va_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/VA",
+  "VirginiaParcel.shp.zip",
+  "VirginiaParcel.shp"
+)) |>
+  terra::project(neon_aop_scbi) |>
+  terra::intersect(
+    c(neon_aop_scbi_buffered, neon_aop_blan_buffered) |>
+      terra::vect()
+  )
+```
+
+# Write
+
+Write out a small file of tax parcels for use in QGIS
+
+```{r write va_tax_parcels}
+va_tax_parcels |>
+  terra::writeVector(file.path(
+    "data/processed",
+    "VA_Tax_parcels.shp.zip"
+  ))
+```
+
+# Notes
+

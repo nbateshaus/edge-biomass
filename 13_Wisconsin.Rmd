@@ -1,0 +1,190 @@
+---
+title: "13_Wisconsin"
+output: html_document
+---
+
+# Setup
+
+```{r setup}
+library(tidyverse)
+library(terra)
+library(tidyterra)
+library(sf)
+library(sfheaders)
+library(ggspatial)
+library(patchwork)
+library(gdalUtilities) # ogr2ogr
+library(maptiles) # for basemap
+
+for (script in list.files(path = "R", pattern = "*.[Rr]", full.names = TRUE)) {
+  source(script)
+}
+```
+
+# Datums
+
+Wisconsin is also home to:
+
+* UNDE - University of Notre Dame Environmental Research Center
+* LIRO - Little Rock Lake
+* STEI - Steigerwaldt-Chequamegon, but D05_CHEQ_R2_P1_v2
+  (in the Chequamegon-Nicolet National Forest, Price County)
+
+These have fewer edges than HARV.
+
+Wisconsin GIS portal: https://data-wi-dnr.opendata.arcgis.com/
+
+Only department of natural resources; does not have real estate records
+
+Real estate records are searchable by an 3rd party service for $9 per search
+
+## State and County Outlines
+
+```{r state_outlines}
+wi_outline <- map_data("state", region = "Wisconsin") |>
+  sfheaders::sf_polygon(
+    obj = _,
+    x = "long",
+    y = "lat",
+    polygon_id = "group"
+  ) |>
+  `st_crs<-`(sf::st_crs("epsg:4326")) |>
+  terra::vect()
+
+wi_counties <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw/WI",
+   "County_Boundaries_24K.zip",
+   "County_Boundaries_24K.shp"
+))
+```
+
+
+## NEON STEI
+
+STEI = Steigerwaldt-Chequamegon, D05_STEI_TREE_R1_P1_v2
+
+Lincoln County
+
+```{r neon_aop_stei}
+neon_aop_stei <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(flightbxID == "D05_STEI_TREE_R1_P1_v2")
+
+neon_aop_stei_buffered <- neon_aop_stei |>
+  terra::buffer(1000)
+```
+
+## NEON TREE
+
+TREE = Treehaven
+Oneida & Langlade Counties
+
+```{r neon_aop_tree}
+neon_aop_tree <- terra::vect(file.path(
+   "/vsizip",
+   "data/raw",
+   "NEON_AOP_flightBoxes_0.zip",
+   "AOP_flightBoxes",
+   "AOP_flightboxesAllSites.shp"
+)) |>
+  filter(siteID == "TREE")
+
+neon_aop_tree_buffered <- neon_aop_tree |>
+  terra::buffer(1000)
+```
+
+## Tax Parcels
+
+This is from https://geodata.wisc.edu/catalog/42c3da8b-66a1-4321-bf80-ea1c5ed37cf9
+
+```{r wi_tax_parcels}
+wi_lincoln_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/WI",
+  "V1200_Wisconsin_Parcels_LINCOLN_SHP.zip",
+  "V1200_Wisconsin_Parcels_LINCOLN.shp"
+))
+
+wi_oneida_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/WI",
+  "V1200_Wisconsin_Parcels_ONEIDA_SHP.zip",
+  "V1200_Wisconsin_Parcels_ONEIDA.shp"
+))
+
+wi_langlade_tax_parcels <- terra::vect(file.path(
+  "/vsizip",
+  "data/raw/WI",
+  "V1200_Wisconsin_Parcels_LANGLADE_SHP.zip",
+  "V1200_Wisconsin_Parcels_LANGLADE.shp"
+))
+
+wi_tax_parcels <-  c(
+  wi_lincoln_tax_parcels,
+  wi_oneida_tax_parcels,
+  wi_langlade_tax_parcels
+) |>
+  terra::vect() |>
+  terra::project(neon_aop_stei) |>
+  terra::intersect(
+    c(neon_aop_stei_buffered, neon_aop_tree_buffered) |>
+      terra::vect()
+  )
+```
+
+```{r}
+ggplot() +
+  geom_spatvector(
+    data = wi_tax_parcels,
+    color = "black",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = neon_aop_stei,
+    color = "red",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = neon_aop_tree,
+    color = "red",
+    fill = "transparent"
+  ) +
+  geom_spatvector(
+    data = wi_counties,
+    color = "blue",
+    fill = "transparent"
+  ) +
+  coord_sf(
+    crs = crs(wi_outline),
+    xlim = c(ext(c(neon_aop_stei, neon_aop_tree))$xmin, ext(c(neon_aop_stei, neon_aop_tree))$xmax),
+    ylim = c(ext(c(neon_aop_stei, neon_aop_tree))$ymin, ext(c(neon_aop_stei, neon_aop_tree))$ymax)
+  ) +
+  theme_bw() +
+  ggtitle("NEON AOPs in WI") +
+  theme(axis.text.x = element_text(angle = -30, hjust = 0, vjust = 1)) +
+  annotation_scale(
+    location = "br",
+    pad_x = unit(0.45, "cm"),
+    pad_y = unit(0.1, "cm")
+  ) +
+  annotation_north_arrow(
+    location = "tr",
+    width = unit(0.75, "cm"),
+    pad_x = unit(-0.15, "cm"),
+    pad_y = unit(0.25, "cm"),
+    style = north_arrow_minimal
+  )
+
+```
+
+```{r}
+wi_tax_parcels |>
+  terra::writeVector("data/processed/WI_Tax_parcels.shp.zip")
+```
+
