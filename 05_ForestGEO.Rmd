@@ -237,6 +237,9 @@ fg_biomass_by_subquad <- fg_biomass |>
   summarize(
     AGBMg = sum(AGBMg, na.rm = TRUE),
     .groups = "drop"
+  ) |>
+  mutate(
+    AGBMg_ha = AGBMg * 10000 / 100 # ha = 100x100; subquad = 10x10
   )
 ```
 
@@ -716,5 +719,219 @@ lp_chm_vs_biomass |>
     x = "Canopy height (m)",
     y = "AGB (Mg)"
   )
+```
+
+# Sensitivity Analysis
+
+If we re-aggregate ForestGEO into 30x30m pixels, what does biomass look
+like?
+
+Some 30x30 pixels will have NA data, so scale by the number of non-NA
+10x10m pixels.
+
+Then we can look at taking random 10x30m strips of each 30x30m pixel
+and seeing how close our biomass estimate gets.
+
+## 30x30 Pixels
+
+Quadrats have 4 sub-quads; nonats have 9 sub-nons
+
+Quadrats are 2x2 10x10m sub-quads; nonats are 3x3 10x10m sub-nons
+
+```{r}
+fg_biomass_with_nonat <- fg_biomass_by_subquad |> # nonat = nine
+  mutate(
+    row_nonat = floor((row - 1) / 3) + 1, # row is 1-indexed
+    col_nonat = floor((col - 1) / 3) + 1 # col is 1-indexed
+  )
+
+fg_biomass_by_nonat <- fg_biomass_with_nonat |>
+  mutate(
+    AGBMg_ha = AGBMg * 10000 / 100 # ha = 100x100; subquad = 10x10
+  ) |>
+  group_by(row_nonat, col_nonat) |>
+  summarize(
+    n = n(),
+    AGBMg_ha = sum(AGBMg_ha) / n,
+    .groups = "drop"
+  )
+```
+
+Is it sane?
+
+```{r}
+fg_biomass_by_nonat |>
+  select(row_nonat, col_nonat, AGBMg_ha) |>
+  ggplot(aes(col_nonat, row_nonat, fill = AGBMg_ha)) +
+  geom_raster(hjust = 0, vjust = 0) +
+  scale_fill_viridis_c(na.value = "black") +
+  theme_bw() +
+  ggtitle("Harvard Forest ForestGEO Biomass per 30m x 30m nonat")
+```
+
+## Sensitivity
+
+If we take a random row or column from a nonat and estimate biomass per
+hectare using that, how far off are we?
+
+```{r}
+random_subnon <- function(row_nonat, col_nonat, fg_biomass_by_subquad) {
+  # Are we going to take a row or a column?
+  if (sample(c("row", "col"), 1) == "row") {
+    r <- sample(1:3, 1)
+    c <- 1:3
+  } else {
+    r <- 1:3
+    c <- sample(1:3, 1)
+  }
+  
+  fg_biomass_by_subquad |>
+    filter(
+      row %in% ((row_nonat - 1) * 3 + r),
+      col %in% ((col_nonat - 1) * 3 + c)
+    ) |>
+    summarize(
+      AGBMg_ha = sum(AGBMg_ha) / n()
+    ) |>
+    pull(AGBMg_ha)
+}
+```
+
+Do the sampling
+
+```{r}
+full_nonats <- fg_biomass_by_nonat |>
+  filter(n == 9)
+actual_biomass <- full_nonats[sample(nrow(full_nonats), 10000, replace = TRUE), ]
+estimated_biomass <- actual_biomass |>
+  apply(1, \(row) random_subnon(row["row_nonat"], row["col_nonat"], fg_biomass_by_subquad))
+actual_vs_estimated <- tibble(
+  AGBMg_ha_actual = actual_biomass$AGBMg_ha,
+  AGBMg_ha_est = estimated_biomass
+)
+```
+
+```{r}
+error <- actual_vs_estimated |>
+  mutate(
+    error = AGBMg_ha_est - AGBMg_ha_actual,
+    AGBMg_ha_actual = round(AGBMg_ha_actual / 25) * 25
+  ) |>
+  group_by(AGBMg_ha_actual) |>
+  summarize(
+    error_sd = sd(error)
+  )
+```
+
+```{r}
+actual_vs_estimated |>
+  ggplot(aes(AGBMg_ha_actual, AGBMg_ha_est)) +
+  geom_ribbon(
+    data = error,
+    mapping = aes(
+      x = AGBMg_ha_actual,
+      ymin = AGBMg_ha_actual - error_sd,
+      ymax = AGBMg_ha_actual + error_sd,
+      fill = "error sd"
+    ),
+    alpha = 0.25,
+    inherit.aes = FALSE
+  ) +
+  geom_point(
+#    mapping = aes(color = "estimated"),
+    size = 0.25,
+    alpha = 0.25,
+    position = position_jitter(width = 10, height = 10)
+  ) +
+  geom_smooth(
+    mapping = aes(color = "fit"),
+    formula = y ~ x,
+    method = "lm",
+    se = FALSE
+  ) +
+  stat_poly_eq(
+    mapping = use_label("eq", "R2"),
+    formula = y ~ x,
+    color = "blue"
+  ) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "estimated" = "black",
+      "fit" = "blue"
+    )
+  ) +
+  scale_fill_manual(
+    name = NULL,
+    values = c(
+      "error sd" = "blue"
+    )
+  ) +
+  coord_cartesian(xlim = c(0, 600), ylim = c(0, 600)) +
+  theme_bw() +
+  theme(aspect.ratio = 1) +
+  ggtitle("Estimating AGB using 10x30m sub-plots") +
+  ylab(bquote("Estimated AGB" ~ (Mg %.% ha^-1))) +
+  xlab(bquote("Measured AGB" ~ (Mg %.% ha^-1)))
+```
+
+## RMSE
+
+```{r}
+actual_vs_estimated |>
+  mutate(
+    error = AGBMg_ha_est - AGBMg_ha_actual
+  ) |>
+  summarise(
+    bias = mean(error),
+    rbias = mean(error / AGBMg_ha_actual),
+    rmse = sqrt(mean(error^2)),
+    rrmse = rmse / mean(AGBMg_ha_actual),
+    mae = mean(abs(error)),
+    rmae = mean(abs(error / AGBMg_ha_actual)),
+    sd_error = sd(error)
+  )
+```
+
+
+# Forest Edges in NEON AOPs
+
+Lucy Lee's data:
+
+```{r}
+forest_edge_ha_1990_2025_by_aop <- read_csv("data/processed/forest_edge_ha_1990_2025_by_aop.csv")
+```
+
+Pivot so we have AOP and year
+
+```{r}
+forest_edge_ha <- forest_edge_ha_1990_2025_by_aop |>
+  pivot_longer(
+    cols = starts_with("edge_"),
+    names_to = "year",
+    names_prefix = "edge_",
+    values_to = "edge"
+  ) |>
+  mutate(
+    year = as.integer(year)
+  ) |>
+  group_by(site_id) |>
+  mutate(
+    edge = cumsum(edge)
+  ) |>
+  ungroup()
+```
+
+```{r}
+forest_edge_ha |>
+  ggplot(aes(year, edge, group = site_id, color = site_id)) +
+  geom_point() +
+  geom_line() +
+  coord_cartesian(ylim = c(0, NA)) +
+  theme_bw() +
+  ggtitle("Forest Edge in NEON AOPs") +
+  ylab("Edge area (hectares)") +
+  xlab("Year") +
+  labs(color = "AOP")
 ```
 

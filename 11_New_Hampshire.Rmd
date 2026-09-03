@@ -35,9 +35,14 @@ neon_aop_bart <- terra::vect(file.path(
    "AOP_flightboxesAllSites.shp"
 )) |>
   filter(siteID == "BART")
+
+neon_aop_bart_buffered <- neon_aop_bart |>
+  terra::buffer(1000)
 ```
 
 ## Tax Parcels
+
+UNH maintains some GIS stuff at https://granit.unh.edu/ 
 
 ```{r nh_tax_parcels}
 nh_tax_parcels <- terra::vect(file.path(
@@ -47,7 +52,7 @@ nh_tax_parcels <- terra::vect(file.path(
   "NH_Parcel_Mosaic_-_Polygons.shp"
 )) |>
   terra::project(neon_aop_bart) |>
-  terra::intersect(neon_aop_bart)
+  terra::intersect(neon_aop_bart_buffered)
 ```
 
 # Write
